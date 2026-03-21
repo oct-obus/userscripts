@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AO3 Enhanced
 // @namespace    https://github.com/obus-schmobus/userscripts
-// @version      1.0.0
+// @version      1.0.1
 // @description  Quality-of-life improvements for Archive of Our Own
 // @author       obus-schmobus
 // @match        https://archiveofourown.org/*
@@ -16,7 +16,9 @@
 
   // ── Fix: Prevent iOS Safari auto-zoom on input focus ──
   // Safari zooms in when focusing inputs with font-size < 16px.
-  // We bump all text inputs/selects/textareas to 16px minimum.
+  // Setting 16px directly is the only reliable fix; max(16px, inherit) is
+  // invalid CSS (inherit isn't a comparable length) and viewport meta
+  // maximum-scale tricks are ignored on modern iOS for accessibility.
   GM_addStyle(`
     input[type="text"],
     input[type="search"],
@@ -24,26 +26,11 @@
     input[type="password"],
     input[type="url"],
     input[type="number"],
+    input[type="tel"],
+    input:not([type]),
     textarea,
     select {
-      font-size: max(16px, inherit) !important;
+      font-size: 16px !important;
     }
   `);
-
-  // Viewport lock fallback: temporarily set maximum-scale=1 on focus
-  const vp = document.querySelector('meta[name="viewport"]');
-  if (vp) {
-    const origContent = vp.content;
-
-    document.addEventListener('focusin', (e) => {
-      const tag = e.target.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
-        vp.content = origContent.replace(/,?\s*maximum-scale=[^,]*/g, '') + ',maximum-scale=1';
-      }
-    });
-
-    document.addEventListener('focusout', () => {
-      vp.content = origContent;
-    });
-  }
 })();
