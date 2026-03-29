@@ -95,10 +95,6 @@
   };
 
   // --- 3. Keep bait element visible (defeat the div-gpt-ad check) ---
-  const origDefineProperty = Object.defineProperty;
-  const origGetComputedStyle = window.getComputedStyle;
-
-  // Ensure any element with ad-related classes reports non-zero dimensions
   const adClasses = ['div-gpt-ad', 'adsbygoogle', 'ad-slot', 'ad-container'];
 
   function isAdBait(el) {
