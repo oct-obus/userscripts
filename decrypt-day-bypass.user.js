@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Decrypt.day Bypass
 // @namespace   https://decrypt.day
-// @version     2.2.0
+// @version     2.2.1
 // @description Bypass ad blocker detection on decrypt.day — works with AdGuard, uBlock Origin, and other content blockers
 // @author      Zen
 // @match       *://decrypt.day/*
@@ -128,7 +128,7 @@
     }
   }
 
-  // ─── Vector 5: MutationObserver for overlays + consent ─────────────
+  // ─── Vector 5: MutationObserver for overlays + consent + donate ─────
   function isOverlay(node) {
     if (!node || node.nodeType !== 1) return false;
 
@@ -151,6 +151,10 @@
         (cls.includes('fc-consent-root') ||
          cls.includes('fc-dialog-overlay') ||
          cls.includes('fc-cta-consent'))) return true;
+
+    // Donate floating button (yellow pill, bottom-left)
+    if (typeof cls === 'string' && cls.includes('donate') &&
+        cls.includes('item')) return true;
 
     return false;
   }
@@ -226,6 +230,15 @@
     ).forEach(el => {
       log(5, 'Cleanup: removed ' + el.tagName + '.' + (el.className || ''));
       el.remove();
+    });
+
+    // Donate floating button (.item.donate in sidebar, links to donate.decrypt.day)
+    document.querySelectorAll(
+      '.item.donate, a[href*="donate.decrypt.day"]'
+    ).forEach(el => {
+      const target = el.closest('.item') || el;
+      log(5, 'Cleanup: removed donate button');
+      target.remove();
     });
 
     // High-z-index fixed overlays
