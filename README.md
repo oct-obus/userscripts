@@ -23,6 +23,5 @@ Userscript that bypasses ad blocker detection on [decrypt.day](https://decrypt.d
 2. Your userscript manager should prompt to install
 
 ## Update URL
-```
-https://raw.githubusercontent.com/obus-schmobus/userscripts/main/decrypt-day-bypass.user.js
-```
+
+[https://raw.githubusercontent.com/obus-schmobus/userscripts/main/decrypt-day-bypass.user.js](https://raw.githubusercontent.com/obus-schmobus/userscripts/main/decrypt-day-bypass.user.js)
