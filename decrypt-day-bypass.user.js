@@ -22,16 +22,18 @@
   // __h82AlnkH6D91__ is the entry point for the anti-adblock detection
   // system. It loads scripts from fundingchoicesmessages.google.com,
   // creates DOM bait elements, and shows a self-healing yellow overlay
-  // banner when blocking is detected. Locking it as a frozen no-op
-  // before the page scripts run prevents the entire Layer 1 detection.
+  // banner when blocking is detected. Using a getter/setter trap
+  // silently absorbs the page's assignment (no TypeError in strict
+  // mode ES modules) and always returns a no-op when read.
+  const _noOp = function () {};
   try {
     Object.defineProperty(window, '__h82AlnkH6D91__', {
-      value: function () {},
-      writable: false,
+      get() { return _noOp; },
+      set() {},
       configurable: false
     });
   } catch (e) {
-    window.__h82AlnkH6D91__ = function () {};
+    window.__h82AlnkH6D91__ = _noOp;
   }
 
   // ─── Vector 2: Pre-set the publisher global variable ───────────────
