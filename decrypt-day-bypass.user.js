@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Decrypt.day Bypass
 // @namespace   https://decrypt.day
-// @version     2.0.0
+// @version     2.1.0
 // @description Bypass ad blocker detection on decrypt.day — works with AdGuard, uBlock Origin, and other content blockers
 // @author      Zen
 // @match       *://decrypt.day/*
@@ -158,6 +158,33 @@
       });
     }
   }
+
+  // ─── Vector 6: SPA navigation awareness ─────────────────────────
+  // SvelteKit uses client-side routing — DOMContentLoaded/load won't
+  // fire again on navigation. We intercept pushState/replaceState and
+  // popstate to re-verify our fake <ins> is still present. A periodic
+  // fallback handles any edge cases (e.g. custom routers, hash nav).
+  function onNavigate() {
+    // Small delay: let SvelteKit finish route transition and mount new
+    // component (which creates fresh detection signals V=0, T='')
+    setTimeout(ensureFakeAdSlot, 0);
+    setTimeout(ensureFakeAdSlot, 100);
+  }
+
+  const _pushState = history.pushState;
+  const _replaceState = history.replaceState;
+  history.pushState = function () {
+    _pushState.apply(this, arguments);
+    onNavigate();
+  };
+  history.replaceState = function () {
+    _replaceState.apply(this, arguments);
+    onNavigate();
+  };
+  window.addEventListener('popstate', onNavigate);
+
+  // Periodic fallback: re-verify fake <ins> every 3s
+  setInterval(ensureFakeAdSlot, 3000);
 
   // ─── Boot ──────────────────────────────────────────────────────────
   startObserver();
