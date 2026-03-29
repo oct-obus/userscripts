@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Decrypt.day Bypass
 // @namespace   https://decrypt.day
-// @version     2.2.1
+// @version     3.0.0
 // @description Bypass ad blocker detection on decrypt.day — works with AdGuard, uBlock Origin, and other content blockers
 // @author      Zen
 // @match       *://decrypt.day/*
@@ -15,262 +15,323 @@
 (function () {
   'use strict';
 
-  const VERSION = '2.2.0';
+  const VERSION = '3.0.0';
   const TAG = '[Decrypt.day Bypass]';
-
-  // ─── Diagnostics ───────────────────────────────────────────────────
-  // Visible markers to confirm the script is executing. Check Safari
-  // console or look for "[BYPASS]" in the page title.
   console.log(TAG, 'v' + VERSION, 'loaded at', performance.now().toFixed(1) + 'ms');
   window.__decryptBypass = VERSION;
 
-  const PUB_ID = 'pub-7963386435348203';
-  const ENCODED_PUB_ID = btoa(PUB_ID);
-  let vectorStatus = {};
+  // ───────────────────────────────────────────────────────────────
+  // PHASE 1: Pre-emptive patches (help when timing allows)
+  // ───────────────────────────────────────────────────────────────
 
-  function log(vector, msg) {
-    console.log(TAG, '[V' + vector + ']', msg);
-  }
-
-  // ─── Vector 1: Neutralize Google Funding Choices orchestrator ──────
+  // V1: Trap FC orchestrator
   try {
-    const _noOp = function () {};
     Object.defineProperty(window, '__h82AlnkH6D91__', {
-      get() { return _noOp; },
-      set() {},
-      configurable: false
+      get() { return function () {}; }, set() {}, configurable: false
     });
-    vectorStatus[1] = 'OK (defineProperty)';
-    log(1, 'Trapped __h82AlnkH6D91__ via defineProperty');
-  } catch (e) {
-    try {
-      window.__h82AlnkH6D91__ = function () {};
-      vectorStatus[1] = 'OK (fallback assign)';
-      log(1, 'Used fallback assignment for __h82AlnkH6D91__');
-    } catch (e2) {
-      vectorStatus[1] = 'FAILED: ' + e2.message;
-      log(1, 'FAILED: ' + e.message + ' / ' + e2.message);
-    }
-  }
+  } catch (e) { try { window.__h82AlnkH6D91__ = function () {}; } catch (e2) {} }
 
-  // ─── Vector 2: Pre-set the publisher global + adsbygoogle ──────────
+  // V2: Publisher global + adsbygoogle
   try {
-    window[ENCODED_PUB_ID] = btoa(JSON.stringify([PUB_ID]));
+    const PUB_ID = 'pub-7963386435348203';
+    window[btoa(PUB_ID)] = btoa(JSON.stringify([PUB_ID]));
     window.adsbygoogle = window.adsbygoogle || [];
-    try {
-      Object.defineProperty(window.frames, 'googlefcPresent', {
-        value: true, writable: false, configurable: true
-      });
-    } catch (e) { /* frames property may not be configurable */ }
-    vectorStatus[2] = 'OK';
-    log(2, 'Publisher global + adsbygoogle + googlefcPresent set');
-  } catch (e) {
-    vectorStatus[2] = 'FAILED: ' + e.message;
-    log(2, 'FAILED: ' + e.message);
-  }
+  } catch (e) {}
 
-  // ─── Vector 3: Patch getComputedStyle for CSS bait check ───────────
-  let _getComputedStyle;
+  // V3: getComputedStyle patch for CSS bait check
+  const _gcs = window.getComputedStyle;
   try {
-    _getComputedStyle = window.getComputedStyle;
-    window.getComputedStyle = function (element, pseudoElt) {
-      const result = _getComputedStyle.call(this, element, pseudoElt);
-      if (element && element.id === 'aswift_5_host') {
-        return new Proxy(result, {
-          get(target, prop) {
-            if (prop === 'clipPath') {
-              if (element.style.clipPath &&
-                  element.style.clipPath.includes('circle(0')) {
-                return 'circle(0px at 50% 50%)';
-              }
-            }
-            if (prop === 'left') {
-              return element.style.left || target.left;
-            }
-            if (prop === 'position') {
-              return element.style.position || target.position;
-            }
-            const val = target[prop];
-            return typeof val === 'function' ? val.bind(target) : val;
+    window.getComputedStyle = function (el, pseudo) {
+      const r = _gcs.call(this, el, pseudo);
+      if (el && el.id === 'aswift_5_host') {
+        return new Proxy(r, {
+          get(t, p) {
+            if (p === 'clipPath' && el.style.clipPath?.includes('circle(0'))
+              return 'circle(0px at 50% 50%)';
+            if (p === 'left') return el.style.left || t.left;
+            if (p === 'position') return el.style.position || t.position;
+            const v = t[p]; return typeof v === 'function' ? v.bind(t) : v;
           }
         });
       }
-      return result;
+      return r;
     };
-    vectorStatus[3] = 'OK';
-    log(3, 'getComputedStyle patched');
-  } catch (e) {
-    _getComputedStyle = _getComputedStyle || window.getComputedStyle;
-    vectorStatus[3] = 'FAILED: ' + e.message;
-    log(3, 'FAILED: ' + e.message);
-  }
+  } catch (e) {}
 
-  // ─── Vector 4: Fake <ins> for script element check ─────────────────
+  // V4: Fake <ins> for script element check
   function ensureFakeAdSlot() {
     try {
-      if (document.querySelector(
-        'ins[data-adsbygoogle-status="done"][data-ad-status="filled"]'
-      )) return;
-
+      if (document.querySelector('ins[data-adsbygoogle-status="done"][data-ad-status="filled"]')) return;
       const ins = document.createElement('ins');
       ins.className = 'adsbygoogle';
       ins.setAttribute('data-adsbygoogle-status', 'done');
       ins.setAttribute('data-ad-status', 'filled');
-      ins.style.display = 'none';
-      ins.style.width = '0';
-      ins.style.height = '0';
+      ins.style.cssText = 'display:none;width:0;height:0';
       (document.body || document.documentElement).appendChild(ins);
-      vectorStatus[4] = 'OK';
-      log(4, 'Fake <ins> element created');
+    } catch (e) {}
+  }
+
+  // ───────────────────────────────────────────────────────────────
+  // PHASE 2: Post-hoc remediation (works even when injected late)
+  // ───────────────────────────────────────────────────────────────
+
+  let capturedFiles = [];
+
+  function getAppSlug() {
+    return location.pathname.match(/\/app\/([^/]+)/)?.[1] || '';
+  }
+
+  // ─── Fetch interceptor: capture ?/files response ───────────────
+  const _fetch = window.fetch;
+  window.fetch = async function (...args) {
+    const resp = await _fetch.apply(this, args);
+    try {
+      const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || '';
+      if (url.includes('?/files')) {
+        const clone = resp.clone();
+        const text = await clone.text();
+        parseFilesResponse(text);
+      }
     } catch (e) {
-      vectorStatus[4] = 'FAILED: ' + e.message;
-      log(4, 'FAILED: ' + e.message);
+      console.warn(TAG, 'Fetch intercept error:', e);
+    }
+    return resp;
+  };
+
+  // Minimal devalue unflatten (SvelteKit serialization format)
+  function devalueUnflatten(arr) {
+    if (!Array.isArray(arr) || arr.length === 0) return arr;
+    const hydrated = new Array(arr.length);
+    const filled = new Array(arr.length).fill(false);
+
+    function hydrate(index) {
+      if (filled[index]) return hydrated[index];
+      filled[index] = true;
+      const value = arr[index];
+
+      if (value === null || value === undefined || typeof value !== 'object') {
+        hydrated[index] = value;
+        return value;
+      }
+      if (Array.isArray(value)) {
+        const result = [];
+        hydrated[index] = result;
+        for (const ref of value) {
+          result.push(typeof ref === 'number' ? hydrate(ref) : ref);
+        }
+        return result;
+      }
+      const result = {};
+      hydrated[index] = result;
+      for (const [key, ref] of Object.entries(value)) {
+        result[key] = typeof ref === 'number' ? hydrate(ref) : ref;
+      }
+      return result;
+    }
+
+    return hydrate(0);
+  }
+
+  function findFilesInObject(obj) {
+    if (!obj || typeof obj !== 'object') return null;
+    if (Array.isArray(obj.files) && obj.files.length > 0 && obj.files[0]?.id) {
+      return obj.files;
+    }
+    for (const val of Object.values(obj)) {
+      if (val && typeof val === 'object') {
+        const found = findFilesInObject(val);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  function parseFilesResponse(text) {
+    try {
+      const outer = JSON.parse(text);
+      if (outer.type !== 'success' || !outer.data) return;
+
+      let data;
+      if (Array.isArray(outer.data)) {
+        data = devalueUnflatten(outer.data);
+      } else if (typeof outer.data === 'string') {
+        try { data = devalueUnflatten(JSON.parse(outer.data)); } catch (e) {}
+      } else if (typeof outer.data === 'object') {
+        data = outer.data;
+      }
+
+      if (data) {
+        const files = findFilesInObject(data);
+        if (files) {
+          capturedFiles = files;
+          console.log(TAG, 'Captured', capturedFiles.length, 'files:', capturedFiles.map(f => f.id));
+          setTimeout(patchDownloadDialog, 50);
+          return;
+        }
+      }
+
+      // Fallback: extract IDs from raw text via regex
+      if (typeof text === 'string' && text.includes('"files"')) {
+        const idPattern = /"([a-zA-Z0-9_-]{15,40})"/g;
+        const ids = [];
+        let match;
+        while ((match = idPattern.exec(text)) !== null) {
+          const c = match[1];
+          if (!['success', 'files', 'error', 'where', 'unknown'].includes(c)) ids.push(c);
+        }
+        if (ids.length > 0) {
+          capturedFiles = ids.map(id => ({ id }));
+          console.log(TAG, 'Captured file IDs (regex):', ids);
+          setTimeout(patchDownloadDialog, 50);
+        }
+      }
+    } catch (e) {
+      console.warn(TAG, 'Parse files error:', e);
     }
   }
 
-  // ─── Vector 5: MutationObserver for overlays + consent + donate ─────
-  function isOverlay(node) {
-    if (!node || node.nodeType !== 1) return false;
+  // ─── Download dialog patcher ───────────────────────────────────
+  function patchDownloadDialog() {
+    const dialog = document.querySelector('.download-dialog');
+    if (!dialog) return;
 
-    // Anti-adblock overlay (fixed, extreme z-index)
-    if (node.style && node.style.position === 'fixed' &&
-        parseInt(node.style.zIndex) > 2147483500) return true;
+    // Remove ad blocker warning (orange banner with "ad block" text)
+    dialog.querySelectorAll('div').forEach(el => {
+      const cls = el.className || '';
+      if ((cls.includes('bg-orange-900') || cls.includes('border-orange-700')) &&
+          (el.textContent?.toLowerCase().includes('ad block') ||
+           el.textContent?.toLowerCase().includes('not allowed'))) {
+        el.remove();
+        console.log(TAG, 'Removed ad blocker warning');
+      }
+    });
 
-    // Google FC iframes
-    if (node.tagName === 'IFRAME' &&
-        (node.name === 'googlefcPresent' ||
-         (node.src && node.src.includes('fundingchoicesmessages')))) return true;
+    // Enable disabled download buttons
+    const slug = getAppSlug();
+    const disabledBtns = dialog.querySelectorAll('.dd-btn-disabled');
 
-    // Google consent interstitials
-    if (node.getAttribute &&
-        node.getAttribute('data-google-interstitial') !== null) return true;
+    disabledBtns.forEach((btn, idx) => {
+      if (btn.dataset.bypassed) return;
+      btn.dataset.bypassed = 'true';
 
-    // Google FC consent dialog (CMP 300)
-    const cls = node.className || '';
-    if (typeof cls === 'string' &&
-        (cls.includes('fc-consent-root') ||
-         cls.includes('fc-dialog-overlay') ||
-         cls.includes('fc-cta-consent'))) return true;
+      btn.classList.remove('dd-btn-disabled');
+      btn.style.pointerEvents = 'auto';
+      btn.style.opacity = '1';
+      btn.style.cursor = 'pointer';
+      btn.removeAttribute('disabled');
 
-    // Donate floating button (yellow pill, bottom-left)
-    if (typeof cls === 'string' && cls.includes('donate') &&
-        cls.includes('item')) return true;
+      const fileId = capturedFiles[idx]?.id;
 
-    return false;
-  }
-
-  function startObserver() {
-    try {
-      const observer = new MutationObserver(mutations => {
-        for (const mutation of mutations) {
-          for (const node of mutation.addedNodes) {
-            if (isOverlay(node)) {
-              log(5, 'Removed overlay: ' + (node.tagName || '') + '.' + (node.className || '') + '#' + (node.id || ''));
-              node.remove();
-            }
-          }
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (fileId && slug) {
+          const url = '/app/' + slug + '/dl/' + fileId;
+          console.log(TAG, 'Opening download:', url);
+          window.open(url, '_blank');
+        } else {
+          console.warn(TAG, 'File ID not captured for button', idx);
+          alert('Bypass: file ID not captured. Try refreshing and clicking Download again.');
         }
       });
 
-      const target = document.body || document.documentElement;
-      if (target) {
-        observer.observe(target, { childList: true, subtree: true });
+      console.log(TAG, 'Enabled button', idx, fileId ? '-> ' + fileId : '(no ID yet)');
+    });
+  }
+
+  // ─── Consent / overlay / donate cleanup ────────────────────────
+  function cleanupUI() {
+    // Google FC consent dialog
+    document.querySelectorAll(
+      '.fc-consent-root, .fc-dialog-overlay, [class*="fc-consent"], [class*="fc-dialog"], ' +
+      'iframe[src*="fundingchoicesmessages"], iframe[name="googlefcPresent"]'
+    ).forEach(el => el.remove());
+
+    // Consent by text content
+    document.querySelectorAll('div, section').forEach(el => {
+      const text = el.textContent || '';
+      if (text.includes('Privacy and cookie settings') &&
+          text.includes('Managed by Google') &&
+          el.children.length > 0) {
+        let root = el;
+        for (let i = 0; i < 10; i++) {
+          if (!root.parentElement || root.parentElement === document.body) break;
+          const pos = getComputedStyle(root.parentElement).position;
+          if (pos === 'fixed' || pos === 'absolute') { root = root.parentElement; break; }
+          root = root.parentElement;
+        }
+        console.log(TAG, 'Removed consent banner');
+        root.remove();
       }
-      // Re-attach when body becomes available
-      if (!document.body) {
-        document.addEventListener('DOMContentLoaded', () => {
-          observer.observe(document.body, { childList: true, subtree: true });
-        });
-      }
-      vectorStatus[5] = 'OK';
-      log(5, 'MutationObserver active');
-    } catch (e) {
-      vectorStatus[5] = 'FAILED: ' + e.message;
-      log(5, 'FAILED: ' + e.message);
+    });
+
+    // Donate button
+    document.querySelectorAll('.item.donate, a[href*="donate.decrypt.day"]').forEach(el => {
+      (el.closest('.item') || el).remove();
+    });
+
+    // High-z-index fixed overlays (FC self-healing banner)
+    document.querySelectorAll('div').forEach(el => {
+      if (el.style?.position === 'fixed' && parseInt(el.style.zIndex) > 2147483500) el.remove();
+    });
+
+    // Google consent interstitials
+    document.querySelectorAll('[data-google-interstitial]').forEach(el => el.remove());
+  }
+
+  // ─── CSS injection ─────────────────────────────────────────────
+  function injectCSS() {
+    const style = document.createElement('style');
+    style.textContent =
+      '.dd-btn-disabled{pointer-events:auto!important;opacity:1!important;cursor:pointer!important}' +
+      '.download-dialog [class*="bg-orange-900"]{display:none!important}';
+    (document.head || document.documentElement).appendChild(style);
+  }
+
+  // ─── MutationObserver ──────────────────────────────────────────
+  function startObserver() {
+    let timer = null;
+    const observer = new MutationObserver(() => {
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        if (document.querySelector('.dd-btn-disabled:not([data-bypassed])')) patchDownloadDialog();
+        cleanupUI();
+      }, 100);
+    });
+
+    function attach(t) { if (t) observer.observe(t, { childList: true, subtree: true }); }
+    attach(document.body || document.documentElement);
+    if (!document.body) {
+      document.addEventListener('DOMContentLoaded', () => attach(document.body));
     }
   }
 
-  // ─── Vector 6: SPA navigation awareness ────────────────────────────
+  // ─── SPA navigation ───────────────────────────────────────────
   function onNavigate() {
+    capturedFiles = [];
     setTimeout(ensureFakeAdSlot, 0);
-    setTimeout(ensureFakeAdSlot, 100);
-    setTimeout(removeConsentAndOverlays, 200);
+    setTimeout(cleanupUI, 200);
   }
-
   try {
-    const _pushState = history.pushState;
-    const _replaceState = history.replaceState;
-    history.pushState = function () {
-      _pushState.apply(this, arguments);
-      onNavigate();
-    };
-    history.replaceState = function () {
-      _replaceState.apply(this, arguments);
-      onNavigate();
-    };
+    const _ps = history.pushState, _rs = history.replaceState;
+    history.pushState = function () { _ps.apply(this, arguments); onNavigate(); };
+    history.replaceState = function () { _rs.apply(this, arguments); onNavigate(); };
     window.addEventListener('popstate', onNavigate);
-    vectorStatus[6] = 'OK';
-    log(6, 'SPA navigation hooks installed');
-  } catch (e) {
-    vectorStatus[6] = 'FAILED: ' + e.message;
-    log(6, 'FAILED: ' + e.message);
-  }
+  } catch (e) {}
 
-  // Periodic fallback: re-verify fake <ins> every 3s
-  setInterval(ensureFakeAdSlot, 3000);
-
-  // ─── Consent & overlay cleanup ─────────────────────────────────────
-  function removeConsentAndOverlays() {
-    // Google FC consent dialog root
-    document.querySelectorAll(
-      '.fc-consent-root, .fc-dialog-overlay, .fc-cta-consent, ' +
-      '[class*="fc-consent"], [class*="fc-dialog"], ' +
-      'iframe[src*="fundingchoicesmessages"], ' +
-      'iframe[name="googlefcPresent"]'
-    ).forEach(el => {
-      log(5, 'Cleanup: removed ' + el.tagName + '.' + (el.className || ''));
-      el.remove();
-    });
-
-    // Donate floating button (.item.donate in sidebar, links to donate.decrypt.day)
-    document.querySelectorAll(
-      '.item.donate, a[href*="donate.decrypt.day"]'
-    ).forEach(el => {
-      const target = el.closest('.item') || el;
-      log(5, 'Cleanup: removed donate button');
-      target.remove();
-    });
-
-    // High-z-index fixed overlays
-    document.querySelectorAll('div').forEach(el => {
-      try {
-        const s = (_getComputedStyle || getComputedStyle).call(window, el);
-        if (s.position === 'fixed' && parseInt(s.zIndex) > 2147483500) {
-          log(5, 'Cleanup: removed fixed overlay z=' + s.zIndex);
-          el.remove();
-        }
-      } catch (e) {}
-    });
-  }
-
-  // ─── Boot ──────────────────────────────────────────────────────────
+  // ─── Boot ──────────────────────────────────────────────────────
+  injectCSS();
   startObserver();
 
   function onReady() {
     ensureFakeAdSlot();
-    removeConsentAndOverlays();
-
-    // Add title marker so user can confirm script ran
+    cleanupUI();
     if (!document.title.includes('[BYPASS]')) {
       document.title = '[BYPASS] ' + document.title;
-      setTimeout(() => {
-        // Restore original title after 3 seconds (just a flash indicator)
-        document.title = document.title.replace('[BYPASS] ', '');
-      }, 3000);
+      setTimeout(() => { document.title = document.title.replace('[BYPASS] ', ''); }, 3000);
     }
-
-    // Log final status
-    console.log(TAG, 'Status:', JSON.stringify(vectorStatus));
+    console.log(TAG, 'Ready. Phase 1 + Phase 2 active.');
   }
 
   if (document.readyState === 'loading') {
@@ -280,8 +341,12 @@
   }
   window.addEventListener('load', () => {
     onReady();
-    // Second pass after everything is loaded
-    setTimeout(removeConsentAndOverlays, 1000);
-    setTimeout(removeConsentAndOverlays, 3000);
+    setTimeout(cleanupUI, 1000);
+    setTimeout(cleanupUI, 3000);
   });
+
+  setInterval(() => {
+    ensureFakeAdSlot();
+    if (document.querySelector('.dd-btn-disabled:not([data-bypassed])')) patchDownloadDialog();
+  }, 2000);
 })();
