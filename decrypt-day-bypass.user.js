@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Decrypt.day Bypass
 // @namespace   https://decrypt.day
-// @version     3.0.0
+// @version     3.1.0
 // @description Bypass ad blocker detection on decrypt.day — works with AdGuard, uBlock Origin, and other content blockers
 // @author      Zen
 // @match       *://decrypt.day/*
@@ -15,7 +15,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '3.0.0';
+  const VERSION = '3.1.0';
   const TAG = '[Decrypt.day Bypass]';
   console.log(TAG, 'v' + VERSION, 'loaded at', performance.now().toFixed(1) + 'ms');
   window.__decryptBypass = VERSION;
@@ -265,10 +265,17 @@
       }
     });
 
-    // Donate button
-    document.querySelectorAll('.item.donate, a[href*="donate.decrypt.day"]').forEach(el => {
-      (el.closest('.item') || el).remove();
+    // Donate button (sidebar link + footer link)
+    document.querySelectorAll('a[href*="donate.decrypt.day"]').forEach(el => {
+      const parent = el.closest('li, .item') || el.parentElement;
+      (parent && parent !== document.body ? parent : el).remove();
     });
+
+    // Ko-fi floating donate widget
+    document.querySelectorAll(
+      '[id*="kofi"], [class*="kofi"], .floatingchat-container, .floatingchat-container-wrap, ' +
+      '[class*="floating-chat"], [id*="floating-chat"], img[src*="ko-fi"], script[src*="ko-fi"]'
+    ).forEach(el => el.remove());
 
     // High-z-index fixed overlays (FC self-healing banner)
     document.querySelectorAll('div').forEach(el => {
@@ -280,13 +287,44 @@
   }
 
   // ─── CSS injection ─────────────────────────────────────────────
+  const CSS_RULES =
+    '.dd-btn-disabled{pointer-events:auto!important;opacity:1!important;cursor:pointer!important}' +
+    '.download-dialog [class*="bg-orange-900"]{display:none!important}' +
+    '.floatingchat-container-wrap,.floatingchat-container,[id*="kofi"],[class*="floatingchat"]{display:none!important}';
+
   function injectCSS() {
+    // Re-inject if style was lost (common when injected before <head> exists)
+    if (document.getElementById('__dd_bypass_css')) return;
     const style = document.createElement('style');
-    style.textContent =
-      '.dd-btn-disabled{pointer-events:auto!important;opacity:1!important;cursor:pointer!important}' +
-      '.download-dialog [class*="bg-orange-900"]{display:none!important}';
+    style.id = '__dd_bypass_css';
+    style.textContent = CSS_RULES;
     (document.head || document.documentElement).appendChild(style);
   }
+
+  // ─── Block Ko-fi widget script from loading ────────────────────
+  const _createElement = document.createElement.bind(document);
+  document.createElement = function (tag, opts) {
+    const el = _createElement(tag, opts);
+    if (tag.toLowerCase() === 'script') {
+      const origSet = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src')?.set;
+      if (origSet) {
+        let blocked = false;
+        Object.defineProperty(el, 'src', {
+          set(v) {
+            if (typeof v === 'string' && v.includes('ko-fi.com')) {
+              console.log(TAG, 'Blocked Ko-fi script:', v);
+              blocked = true;
+              return;
+            }
+            origSet.call(this, v);
+          },
+          get() { return blocked ? '' : HTMLScriptElement.prototype.src; },
+          configurable: true
+        });
+      }
+    }
+    return el;
+  };
 
   // ─── MutationObserver ──────────────────────────────────────────
   function startObserver() {
@@ -295,6 +333,7 @@
       if (timer) return;
       timer = setTimeout(() => {
         timer = null;
+        injectCSS(); // Ensure CSS persists
         if (document.querySelector('.dd-btn-disabled:not([data-bypassed])')) patchDownloadDialog();
         cleanupUI();
       }, 100);
@@ -325,6 +364,7 @@
   startObserver();
 
   function onReady() {
+    injectCSS(); // Re-inject in case early injection was lost
     ensureFakeAdSlot();
     cleanupUI();
     if (!document.title.includes('[BYPASS]')) {
