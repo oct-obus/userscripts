@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Decrypt.day Bypass
 // @namespace   https://decrypt.day
-// @version     3.1.0
+// @version     3.2.0
 // @description Bypass ad blocker detection on decrypt.day — works with AdGuard, uBlock Origin, and other content blockers
 // @author      Zen
 // @match       *://decrypt.day/*
@@ -15,7 +15,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '3.1.0';
+  const VERSION = '3.2.0';
   const TAG = '[Decrypt.day Bypass]';
   console.log(TAG, 'v' + VERSION, 'loaded at', performance.now().toFixed(1) + 'ms');
   window.__decryptBypass = VERSION;
@@ -241,13 +241,13 @@
 
   // ─── Consent / overlay / donate cleanup ────────────────────────
   function cleanupUI() {
-    // Google FC consent dialog
+    // Google FC consent dialog (class-based)
     document.querySelectorAll(
       '.fc-consent-root, .fc-dialog-overlay, [class*="fc-consent"], [class*="fc-dialog"], ' +
       'iframe[src*="fundingchoicesmessages"], iframe[name="googlefcPresent"]'
-    ).forEach(el => el.remove());
+    ).forEach(el => { el.remove(); });
 
-    // Consent by text content
+    // Consent by text content ("Privacy and cookie settings" / "Managed by Google")
     document.querySelectorAll('div, section').forEach(el => {
       const text = el.textContent || '';
       if (text.includes('Privacy and cookie settings') &&
@@ -260,22 +260,44 @@
           if (pos === 'fixed' || pos === 'absolute') { root = root.parentElement; break; }
           root = root.parentElement;
         }
-        console.log(TAG, 'Removed consent banner');
+        console.log(TAG, 'Removed consent banner (text match)');
         root.remove();
       }
     });
 
-    // Donate button (sidebar link + footer link)
+    // Ko-fi floating donate widget — target by ID prefix
+    document.querySelectorAll('div[id^="kofi-widget-overlay"]').forEach(kofi => {
+      // The Google CMP consent overlay is the NEXT SIBLING of the Ko-fi div
+      const sibling = kofi.nextElementSibling;
+      if (sibling && sibling.tagName === 'DIV') {
+        console.log(TAG, 'Removed consent overlay (Ko-fi sibling)');
+        sibling.remove();
+      }
+      console.log(TAG, 'Removed Ko-fi widget:', kofi.id);
+      kofi.remove();
+    });
+
+    // Also catch Ko-fi by broader selectors (wrapper, iframe, etc.)
+    document.querySelectorAll(
+      '.floatingchat-container-wrap, .floatingchat-container, ' +
+      '[id*="kofi"], [class*="floatingchat"], iframe[id*="kofi"]'
+    ).forEach(el => { el.remove(); });
+
+    // Donate sidebar/footer links
     document.querySelectorAll('a[href*="donate.decrypt.day"]').forEach(el => {
       const parent = el.closest('li, .item') || el.parentElement;
       (parent && parent !== document.body ? parent : el).remove();
     });
 
-    // Ko-fi floating donate widget
-    document.querySelectorAll(
-      '[id*="kofi"], [class*="kofi"], .floatingchat-container, .floatingchat-container-wrap, ' +
-      '[class*="floating-chat"], [id*="floating-chat"], img[src*="ko-fi"], script[src*="ko-fi"]'
-    ).forEach(el => el.remove());
+    // Google CMP fingerprint: div with massive inline style full of "!important"
+    // These are classless/IDless divs with 20+ "!important" in style attribute
+    document.querySelectorAll('div:not([class]):not([id])').forEach(el => {
+      const style = el.getAttribute('style') || '';
+      if ((style.match(/!important/g) || []).length >= 15) {
+        console.log(TAG, 'Removed CMP overlay (style fingerprint)');
+        el.remove();
+      }
+    });
 
     // High-z-index fixed overlays (FC self-healing banner)
     document.querySelectorAll('div').forEach(el => {
@@ -290,7 +312,7 @@
   const CSS_RULES =
     '.dd-btn-disabled{pointer-events:auto!important;opacity:1!important;cursor:pointer!important}' +
     '.download-dialog [class*="bg-orange-900"]{display:none!important}' +
-    '.floatingchat-container-wrap,.floatingchat-container,[id*="kofi"],[class*="floatingchat"]{display:none!important}';
+    '.floatingchat-container-wrap,.floatingchat-container,[id*="kofi"],[class*="floatingchat"],div[id^="kofi-widget-overlay"]{display:none!important}';
 
   function injectCSS() {
     // Re-inject if style was lost (common when injected before <head> exists)
@@ -387,6 +409,7 @@
 
   setInterval(() => {
     ensureFakeAdSlot();
+    cleanupUI();
     if (document.querySelector('.dd-btn-disabled:not([data-bypassed])')) patchDownloadDialog();
   }, 2000);
 })();
