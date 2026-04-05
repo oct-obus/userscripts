@@ -7,6 +7,8 @@
 // @match        https://fritz.com/*
 // @match        https://www.fritz.com/*
 // @run-at       document-start
+// @updateURL    https://raw.githubusercontent.com/oct-obus/userscripts/main/fritz-german-locale.user.js
+// @downloadURL  https://raw.githubusercontent.com/oct-obus/userscripts/main/fritz-german-locale.user.js
 // @grant        none
 // ==/UserScript==
 
