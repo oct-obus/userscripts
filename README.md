@@ -17,7 +17,7 @@ Userscript that bypasses ad blocker detection on [decrypt.day](https://decrypt.d
 
 **Result:** The internal `adTracking` state stays at -2 (not blocked) → download button remains enabled → Turnstile CAPTCHA works normally → download proceeds.
 
-[Install](https://raw.githubusercontent.com/obus-schmobus/userscripts/main/decrypt-day-bypass.user.js)
+[Install](https://raw.githubusercontent.com/oct-obus/userscripts/main/decrypt-day-bypass.user.js)
 
 ### Fritz.com German Locale Fix
 
@@ -27,7 +27,7 @@ Forces fritz.com to use the German locale. AVM's Shopify-based site auto-redirec
 - Intercepts `history.pushState`, `replaceState`, and `location.replace` to block Shopify's JS redirects
 - Covers all English locale prefixes (`/en/`, `/en-at/`, `/en-be/`, etc.)
 
-[Install](https://raw.githubusercontent.com/obus-schmobus/userscripts/main/fritz-german-locale.user.js)
+[Install](https://raw.githubusercontent.com/oct-obus/userscripts/main/fritz-german-locale.user.js)
 
 ## Installation
 

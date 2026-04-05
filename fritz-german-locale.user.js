@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Fritz.com German Locale Fix
-// @namespace    https://github.com/obus-schmobus/userscripts
+// @namespace    https://github.com/oct-obus/userscripts
 // @version      1.0.0
 // @description  Forces fritz.com to use the German locale instead of auto-redirecting to English
 // @author       Zen
