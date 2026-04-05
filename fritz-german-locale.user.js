@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fritz.com German Locale Fix
 // @namespace    https://github.com/oct-obus/userscripts
-// @version      1.0.0
+// @version      1.1.0
 // @description  Forces fritz.com to use the German locale instead of auto-redirecting to English
 // @author       Zen
 // @match        https://fritz.com/*
@@ -13,56 +13,45 @@
 (function () {
   'use strict';
 
-  const englishPrefixes = ['/en/', '/en-at/', '/en-be/', '/en-it/', '/en-lu/', '/en-nl/', '/en-es/', '/en-pl/', '/en-ch/'];
-  const path = location.pathname;
+  const enPrefixRe = /^\/(en|en-at|en-be|en-it|en-lu|en-nl|en-es|en-pl|en-ch)\//;
+  const match = location.pathname.match(enPrefixRe);
+  if (!match) return;
 
-  for (const prefix of englishPrefixes) {
-    if (path.startsWith(prefix)) {
-      const rest = path.slice(prefix.length);
-      location.replace(location.origin + '/' + rest + location.search + location.hash);
-      return;
-    }
-  }
+  // We're on an /en/ page due to server-side 302 based on Accept-Language.
+  // Can't prevent the redirect, so fetch the German version and replace the page.
+  const germanPath = '/' + location.pathname.slice(match[0].length);
+  const germanUrl = location.origin + germanPath + location.search + location.hash;
 
-  // Block Shopify's locale redirect by intercepting pushState/replaceState
-  const origPushState = history.pushState;
-  const origReplaceState = history.replaceState;
+  // Stop the English page from rendering
+  document.documentElement.innerHTML = '';
 
-  function blockEnglishRedirect(orig) {
-    return function (state, title, url) {
-      if (url && typeof url === 'string') {
-        for (const prefix of englishPrefixes) {
-          if (url.includes(prefix)) {
-            return; // silently block the redirect
-          }
-        }
+  fetch(germanUrl, {
+    headers: { 'Accept-Language': 'de-DE,de;q=0.9' },
+    redirect: 'manual'
+  })
+    .then(function (resp) {
+      if (resp.type === 'opaqueredirect' || !resp.ok) {
+        // Fallback: follow redirect and return that
+        return fetch(germanUrl, {
+          headers: { 'Accept-Language': 'de-DE,de;q=0.9' }
+        });
       }
-      return orig.call(this, state, title, url);
-    };
-  }
+      return resp;
+    })
+    .then(function (resp) { return resp.text(); })
+    .then(function (html) {
+      // Replace the entire document with the German content
+      document.open();
+      document.write(html);
+      document.close();
 
-  history.pushState = blockEnglishRedirect(origPushState);
-  history.replaceState = blockEnglishRedirect(origReplaceState);
-
-  // Also intercept location.assign/replace calls from Shopify JS
-  const origAssign = location.assign;
-  const origLocationReplace = location.replace;
-
-  function wrapLocationMethod(orig) {
-    return function (url) {
-      if (url && typeof url === 'string') {
-        for (const prefix of englishPrefixes) {
-          if (url.includes(prefix)) {
-            return; // block
-          }
-        }
-      }
-      return orig.call(this, url);
-    };
-  }
-
-  // These may throw in some browsers due to location being special,
-  // so wrap in try/catch
-  try { location.assign = wrapLocationMethod(origAssign); } catch (e) {}
-  try { location.replace = wrapLocationMethod(origLocationReplace); } catch (e) {}
+      // Update the URL bar to show the German path
+      try {
+        history.replaceState(null, '', germanUrl);
+      } catch (e) {}
+    })
+    .catch(function () {
+      // If fetch fails, just let the English page load
+      location.reload();
+    });
 })();
