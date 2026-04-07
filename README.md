@@ -19,6 +19,18 @@ Userscript that bypasses ad blocker detection on [decrypt.day](https://decrypt.d
 
 [Install](https://raw.githubusercontent.com/oct-obus/userscripts/main/decrypt-day-bypass.user.js)
 
+### Instagram Saved Collection Video Viewer
+
+View all videos from an Instagram saved collection in a full-page grid overlay. Triggered via Tampermonkey's context menu on any `/saved/*/` page.
+
+- Fetches posts from the private API using the page's existing session cookies
+- Displays all video posts in a responsive grid with native `<video>` controls
+- Carousel posts show left/right navigation to switch between video slides (photos filtered out)
+- Manual "Load more" pagination to avoid rate limiting
+- Escape or × to close
+
+[Install](https://raw.githubusercontent.com/oct-obus/userscripts/main/instagram-saved-videos.user.js)
+
 ### Fritz.com German Locale Fix
 
 Forces fritz.com to use the German locale. AVM's Shopify-based site auto-redirects to `/en/` based on browser language — this script intercepts the redirect and strips the English prefix, keeping you on the German version.
