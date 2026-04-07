@@ -31,6 +31,19 @@ View all videos from an Instagram saved collection in a full-page grid overlay. 
 
 [Install](https://raw.githubusercontent.com/oct-obus/userscripts/main/instagram-saved-videos.user.js)
 
+### Fritz!Box Mesh Page Fix
+
+Fixes the Fritz!Box router's mesh page (`#/mesh`) from freezing every 5 seconds. AVM's firmware rebuilds the entire page DOM on every refresh cycle — this script makes it efficient.
+
+**Three fixes in one:**
+1. **Response deduplication** — hashes each `data.lua` response and skips rendering entirely when the mesh state hasn't changed (covers ~95% of refresh cycles on a stable network)
+2. **DOM morphing** — replaces AVM's nuclear `replaceChildren` with [morphdom](https://github.com/patrick-steele-idem/morphdom) for surgical DOM patches. Only nodes that actually changed are touched — preserves Web Component state, GIF animations, and avoids layout thrashing
+3. **requestAnimationFrame batching** — defers renders to the start of the next frame to avoid mid-composite DOM mutations
+
+morphdom is inlined (~4KB) so the script works without internet — important since Fritz!Box is a local device and mesh problems often mean no connectivity.
+
+[Install](https://raw.githubusercontent.com/oct-obus/userscripts/main/fritz-mesh-fix.user.js)
+
 ### Fritz.com German Locale Fix
 
 Forces fritz.com to use the German locale. AVM's Shopify-based site auto-redirects to `/en/` based on browser language — this script intercepts the redirect and strips the English prefix, keeping you on the German version.
