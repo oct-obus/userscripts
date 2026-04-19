@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         RoyaleAPI Leaderboard Deck Deduplicator
 // @namespace    https://github.com/oct-obus/userscripts
-// @version      1.1
-// @description  Deduplicates leaderboard decks and adds similarity sorting with collapsible groups on RoyaleAPI
+// @version      1.2
+// @description  Deduplicates leaderboard decks, adds similarity sorting with collapsible groups, and inline win rate stats
 // @author       Zen
 // @match        https://royaleapi.com/decks/leaderboard*
 // @run-at       document-idle
@@ -14,6 +14,7 @@
   'use strict';
 
   var GROUP_THRESHOLD = 4; // min shared cards to stay in same group
+  var statsCache = {}; // url -> { wins, draws, losses, winPct, drawPct, lossPct, total }
 
   // ─── Deck Parsing ───────────────────────────────────────────────────
 
@@ -31,6 +32,11 @@
       }
     }
     return keys;
+  }
+
+  function getDeckStatsUrl(segment) {
+    var link = segment.querySelector('a.deck_lb__deck_row');
+    return link ? link.href : null;
   }
 
   function makeDeckFingerprint(cardKeys) {
@@ -246,6 +252,57 @@
     }
   }
 
+  // ─── Inline Stats Fetching ──────────────────────────────────────────
+
+  function parseWinStats(html) {
+    var parser = new DOMParser();
+    var doc = parser.parseFromString(html, 'text/html');
+    var tables = doc.querySelectorAll('table.stats');
+    for (var t = 0; t < tables.length; t++) {
+      var rows = tables[t].querySelectorAll('tr');
+      var data = {};
+      for (var r = 0; r < rows.length; r++) {
+        var cells = rows[r].querySelectorAll('td');
+        if (cells.length < 4) continue;
+        var label = (cells[1].textContent || '').trim().toLowerCase();
+        var count = (cells[2].textContent || '').trim();
+        var pct = (cells[3].textContent || '').trim();
+        if (label === 'wins') { data.wins = count; data.winPct = pct; }
+        else if (label === 'draws') { data.draws = count; data.drawPct = pct; }
+        else if (label === 'losses') { data.losses = count; data.lossPct = pct; }
+        else if (label === 'total') { data.total = count; }
+      }
+      if (data.wins && data.losses) return data;
+    }
+    return null;
+  }
+
+  function fetchDeckStats(url, callback) {
+    if (statsCache[url]) {
+      callback(null, statsCache[url]);
+      return;
+    }
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true);
+    xhr.onload = function () {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        var data = parseWinStats(xhr.responseText);
+        if (data) {
+          statsCache[url] = data;
+          callback(null, data);
+        } else {
+          callback('Could not parse win stats from page');
+        }
+      } else {
+        callback('HTTP ' + xhr.status);
+      }
+    };
+    xhr.onerror = function () {
+      callback('Network error');
+    };
+    xhr.send();
+  }
+
   // ─── UI ─────────────────────────────────────────────────────────────
 
   function injectStyles() {
@@ -310,8 +367,181 @@
       '}' +
       '.dedup-group-header.collapsed .dedup-group-chevron {' +
       '  transform: rotate(-90deg);' +
-      '}';
+      '}' +
+      '.dedup-stats-btn {' +
+      '  display: inline-flex; align-items: center; justify-content: center;' +
+      '  width: 32px; height: 32px;' +
+      '  border-radius: 50%;' +
+      '  border: 1px solid #ccc;' +
+      '  background: #fff;' +
+      '  cursor: pointer;' +
+      '  font-size: 16px;' +
+      '  margin-left: 4px;' +
+      '  vertical-align: middle;' +
+      '  -webkit-tap-highlight-color: transparent;' +
+      '  transition: background 0.15s, border-color 0.15s;' +
+      '}' +
+      '.dedup-stats-btn:active { background: #f0f0f0; }' +
+      '.dedup-stats-btn.active { background: #e8f4ff; border-color: #4a9eff; }' +
+      '.dedup-stats-panel {' +
+      '  padding: 10px 14px;' +
+      '  background: #fafafa;' +
+      '  border-top: 1px solid #eee;' +
+      '  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;' +
+      '  font-size: 13px;' +
+      '}' +
+      '.dedup-stats-bar {' +
+      '  display: flex; height: 20px; border-radius: 4px; overflow: hidden;' +
+      '  margin-bottom: 8px;' +
+      '}' +
+      '.dedup-stats-bar .wins { background: #4caf50; }' +
+      '.dedup-stats-bar .draws { background: #9e9e9e; }' +
+      '.dedup-stats-bar .losses { background: #ff7043; }' +
+      '.dedup-stats-table { width: 100%; border-collapse: collapse; }' +
+      '.dedup-stats-table td { padding: 3px 8px; font-size: 12px; }' +
+      '.dedup-stats-table td:first-child { width: 10px; padding: 3px 4px; }' +
+      '.dedup-stats-table .dot {' +
+      '  display: inline-block; width: 8px; height: 8px; border-radius: 50%;' +
+      '}' +
+      '.dedup-stats-table .dot.wins { background: #4caf50; }' +
+      '.dedup-stats-table .dot.draws { background: #9e9e9e; }' +
+      '.dedup-stats-table .dot.losses { background: #ff7043; }' +
+      '.dedup-stats-table td.num { text-align: right; color: #666; }' +
+      '.dedup-stats-table td.pct { text-align: right; font-weight: 600; }' +
+      '.dedup-stats-loading { color: #999; font-size: 12px; padding: 8px 0; }' +
+      '.dedup-stats-error { color: #d32f2f; font-size: 12px; padding: 8px 0; }';
     document.head.appendChild(style);
+  }
+
+  function createStatsPanel(data) {
+    var panel = document.createElement('div');
+    panel.className = 'dedup-stats-panel';
+    var winNum = parseInt((data.winPct || '0').replace('%', ''), 10) || 0;
+    var drawNum = parseInt((data.drawPct || '0').replace('%', ''), 10) || 0;
+    var lossNum = parseInt((data.lossPct || '0').replace('%', ''), 10) || 0;
+    var bar = document.createElement('div');
+    bar.className = 'dedup-stats-bar';
+    var addBarSeg = function (cls, pct) {
+      if (pct <= 0) return;
+      var seg = document.createElement('div');
+      seg.className = cls;
+      seg.style.width = pct + '%';
+      bar.appendChild(seg);
+    };
+    addBarSeg('wins', winNum);
+    addBarSeg('draws', drawNum);
+    addBarSeg('losses', lossNum);
+    panel.appendChild(bar);
+    var table = document.createElement('table');
+    table.className = 'dedup-stats-table';
+    var addRow = function (dotCls, label, count, pct) {
+      var tr = document.createElement('tr');
+      var dotTd = document.createElement('td');
+      var dot = document.createElement('span');
+      dot.className = 'dot ' + dotCls;
+      dotTd.appendChild(dot);
+      tr.appendChild(dotTd);
+      var labelTd = document.createElement('td');
+      labelTd.textContent = label;
+      tr.appendChild(labelTd);
+      var countTd = document.createElement('td');
+      countTd.className = 'num';
+      countTd.textContent = count;
+      tr.appendChild(countTd);
+      var pctTd = document.createElement('td');
+      pctTd.className = 'pct';
+      pctTd.textContent = pct;
+      tr.appendChild(pctTd);
+      table.appendChild(tr);
+    };
+    addRow('wins', 'Wins', data.wins || '\u2014', data.winPct || '\u2014');
+    addRow('draws', 'Draws', data.draws || '\u2014', data.drawPct || '\u2014');
+    addRow('losses', 'Losses', data.losses || '\u2014', data.lossPct || '\u2014');
+    if (data.total) {
+      var totalTr = document.createElement('tr');
+      var emptyTd = document.createElement('td');
+      totalTr.appendChild(emptyTd);
+      var totalLabel = document.createElement('td');
+      totalLabel.style.fontWeight = '600';
+      totalLabel.textContent = 'Total';
+      totalTr.appendChild(totalLabel);
+      var totalCount = document.createElement('td');
+      totalCount.className = 'num';
+      totalCount.style.fontWeight = '600';
+      totalCount.textContent = data.total;
+      totalTr.appendChild(totalCount);
+      var totalPct = document.createElement('td');
+      totalPct.className = 'pct';
+      totalPct.textContent = '100%';
+      totalTr.appendChild(totalPct);
+      table.appendChild(totalTr);
+    }
+    panel.appendChild(table);
+    return panel;
+  }
+
+  function addStatsButton(segment) {
+    var buttonContainer = segment.querySelector('.button_container');
+    if (!buttonContainer) return;
+    if (segment.querySelector('.dedup-stats-btn')) return;
+    var btn = document.createElement('button');
+    btn.className = 'dedup-stats-btn';
+    btn.textContent = '\uD83D\uDCCA';
+    btn.title = 'Show win rate stats';
+    buttonContainer.insertBefore(btn, buttonContainer.firstChild);
+    var panelEl = null;
+    var isOpen = false;
+    var isFetching = false;
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (isOpen) {
+        if (panelEl) panelEl.style.display = 'none';
+        btn.classList.remove('active');
+        isOpen = false;
+        return;
+      }
+      isOpen = true;
+      btn.classList.add('active');
+      // If panel exists and last fetch succeeded, just re-show it
+      if (panelEl && !isFetching) {
+        panelEl.style.display = '';
+        return;
+      }
+      // If already fetching, don't re-trigger
+      if (isFetching) return;
+      var url = getDeckStatsUrl(segment);
+      if (!url) return;
+      // Remove stale error panel so we can retry
+      if (panelEl) { panelEl.remove(); panelEl = null; }
+      isFetching = true;
+      panelEl = document.createElement('div');
+      panelEl.className = 'dedup-stats-panel';
+      var loadMsg = document.createElement('div');
+      loadMsg.className = 'dedup-stats-loading';
+      loadMsg.textContent = 'Loading stats\u2026';
+      panelEl.appendChild(loadMsg);
+      segment.appendChild(panelEl);
+      fetchDeckStats(url, function (err, data) {
+        isFetching = false;
+        if (err) {
+          // Clear panelEl so next click can retry
+          var errDiv = document.createElement('div');
+          errDiv.className = 'dedup-stats-error';
+          errDiv.textContent = '\u26A0 ' + err;
+          panelEl.textContent = '';
+          panelEl.appendChild(errDiv);
+          if (!isOpen) panelEl.style.display = 'none';
+          panelEl = null;
+          return;
+        }
+        var newPanel = createStatsPanel(data);
+        // If user closed while fetch was in-flight, hide the new panel
+        if (!isOpen) newPanel.style.display = 'none';
+        panelEl.parentNode.replaceChild(newPanel, panelEl);
+        panelEl = newPanel;
+      });
+    });
   }
 
   function createGroupHeader(label, count, groupIndex) {
@@ -389,6 +619,11 @@
     var visibleCount = segments.length - result.hidden - result.parseFail;
     controls.statusSpan.textContent =
       visibleCount + ' unique decks (' + result.hidden + ' duplicates hidden)';
+
+    // Add stats buttons to all visible segments
+    for (var i = 0; i < segments.length; i++) {
+      addStatsButton(segments[i]);
+    }
 
     // Similarity toggle
     controls.simCheckbox.addEventListener('change', function () {
