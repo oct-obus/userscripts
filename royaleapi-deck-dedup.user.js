@@ -394,9 +394,9 @@
       '  display: flex; height: 20px; border-radius: 4px; overflow: hidden;' +
       '  margin-bottom: 2px; position: relative;' +
       '}' +
-      '.dedup-stats-bar .wins { background: rgba(32,133,208,0.85); }' +
+      '.dedup-stats-bar .wins { background: #4caf50; }' +
       '.dedup-stats-bar .draws { background: rgba(128,128,128,0.3); }' +
-      '.dedup-stats-bar .losses { background: rgba(219,40,39,0.85); }' +
+      '.dedup-stats-bar .losses { background: #ff7043; }' +
       '.dedup-stats-bar .ref-line {' +
       '  position: absolute; top: 0; bottom: 0; width: 1px;' +
       '  background: rgba(255,255,255,0.5); pointer-events: none; z-index: 1;' +
@@ -414,9 +414,9 @@
       '.dedup-stats-table .dot {' +
       '  display: inline-block; width: 8px; height: 8px; border-radius: 50%;' +
       '}' +
-      '.dedup-stats-table .dot.wins { background: rgba(32,133,208,0.85); }' +
+      '.dedup-stats-table .dot.wins { background: #4caf50; }' +
       '.dedup-stats-table .dot.draws { background: rgba(128,128,128,0.5); }' +
-      '.dedup-stats-table .dot.losses { background: rgba(219,40,39,0.85); }' +
+      '.dedup-stats-table .dot.losses { background: #ff7043; }' +
       '.dedup-stats-table td.num { text-align: right; color: #666; }' +
       '.dedup-stats-table td.pct { text-align: right; font-weight: 600; }' +
       '.dedup-stats-loading { color: #999; font-size: 12px; padding: 8px 0; }' +
