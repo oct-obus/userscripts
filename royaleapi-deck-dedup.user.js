@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RoyaleAPI Leaderboard Deck Deduplicator
 // @namespace    https://github.com/oct-obus/userscripts
-// @version      1.2
+// @version      1.3
 // @description  Deduplicates leaderboard decks, adds similarity sorting with collapsible groups, and inline win rate stats
 // @author       Zen
 // @match        https://royaleapi.com/decks/leaderboard*
