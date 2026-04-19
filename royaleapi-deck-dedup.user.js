@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         RoyaleAPI Leaderboard Deck Deduplicator
 // @namespace    https://github.com/oct-obus/userscripts
-// @version      1.0
-// @description  Deduplicates leaderboard decks and adds similarity sorting on RoyaleAPI
+// @version      1.1
+// @description  Deduplicates leaderboard decks and adds similarity sorting with collapsible groups on RoyaleAPI
 // @author       Zen
 // @match        https://royaleapi.com/decks/leaderboard*
 // @run-at       document-idle
@@ -12,6 +12,8 @@
 
 (function () {
   'use strict';
+
+  var GROUP_THRESHOLD = 4; // min shared cards to stay in same group
 
   // ─── Deck Parsing ───────────────────────────────────────────────────
 
@@ -55,6 +57,43 @@
     return count;
   }
 
+  function formatCardName(slug) {
+    return slug.replace(/-ev\d+$/, '').replace(/-/g, ' ').replace(/\b\w/g, function (c) {
+      return c.toUpperCase();
+    });
+  }
+
+  function describeGroup(decks) {
+    if (decks.length === 0) return 'Empty group';
+    // Find cards shared by all decks in the group
+    var common = cardSet(decks[0].keys);
+    for (var i = 1; i < decks.length; i++) {
+      var current = cardSet(decks[i].keys);
+      for (var key in common) {
+        if (!current[key]) delete common[key];
+      }
+    }
+    var commonKeys = Object.keys(common);
+    if (commonKeys.length > 0) {
+      var names = commonKeys.slice(0, 4).map(formatCardName);
+      var label = names.join(', ');
+      if (commonKeys.length > 4) label += ' +' + (commonKeys.length - 4);
+      return label;
+    }
+    // Fallback: most frequent cards across the group
+    var freq = {};
+    for (var d = 0; d < decks.length; d++) {
+      for (var k = 0; k < decks[d].keys.length; k++) {
+        var card = decks[d].keys[k];
+        freq[card] = (freq[card] || 0) + 1;
+      }
+    }
+    var pairs = Object.keys(freq).map(function (key) { return { key: key, count: freq[key] }; });
+    pairs.sort(function (a, b) { return b.count - a.count; });
+    var topNames = pairs.slice(0, 3).map(function (p) { return formatCardName(p.key); });
+    return topNames.join(', ') + ' variants';
+  }
+
   // ─── Deduplication ──────────────────────────────────────────────────
 
   function getAllDeckSegments() {
@@ -90,27 +129,25 @@
     return { hidden: hiddenCount, parseFail: parseFailCount };
   }
 
-  // ─── Similarity Sorting ─────────────────────────────────────────────
+  // ─── Similarity Sorting + Grouping ──────────────────────────────────
 
-  function sortBySimilarity(segments) {
+  function getVisibleDecks(segments) {
     var visible = [];
     for (var i = 0; i < segments.length; i++) {
       if (segments[i].getAttribute('data-dedup-hidden') === 'true') continue;
       if (segments[i].getAttribute('data-dedup-noparse') === 'true') continue;
       var keys = getCardKeysFromSegment(segments[i]);
       if (keys.length === 0) continue;
-      visible.push({
-        el: segments[i],
-        keys: keys,
-      });
+      visible.push({ el: segments[i], keys: keys });
     }
-    if (visible.length === 0) return;
+    return visible;
+  }
 
-    // Greedy nearest-neighbor ordering
+  function greedyNearestNeighborOrder(visible) {
+    if (visible.length === 0) return [];
     var ordered = [visible[0]];
     var used = {};
     used[0] = true;
-
     for (var step = 1; step < visible.length; step++) {
       var last = ordered[ordered.length - 1];
       var bestIdx = -1;
@@ -128,14 +165,64 @@
         ordered.push(visible[bestIdx]);
       }
     }
+    return ordered;
+  }
 
+  function buildGroups(ordered) {
+    if (ordered.length === 0) return [];
+    var groups = [{ decks: [ordered[0]] }];
+    for (var i = 1; i < ordered.length; i++) {
+      var prev = ordered[i - 1];
+      var curr = ordered[i];
+      var shared = countSharedCards(prev.keys, curr.keys);
+      if (shared < GROUP_THRESHOLD) {
+        groups.push({ decks: [curr] });
+      } else {
+        groups[groups.length - 1].decks.push(curr);
+      }
+    }
+    // Generate labels
+    for (var g = 0; g < groups.length; g++) {
+      groups[g].label = describeGroup(groups[g].decks);
+      groups[g].count = groups[g].decks.length;
+    }
+    return groups;
+  }
+
+  function removeGroupHeaders() {
+    var headers = document.querySelectorAll('.dedup-group-header');
+    for (var i = 0; i < headers.length; i++) {
+      headers[i].remove();
+    }
+  }
+
+  function resetSegmentVisibility(segments) {
+    for (var i = 0; i < segments.length; i++) {
+      if (segments[i].getAttribute('data-dedup-hidden') !== 'true') {
+        segments[i].style.display = '';
+      }
+    }
+  }
+
+  function sortAndGroup(segments) {
+    removeGroupHeaders();
+    resetSegmentVisibility(segments);
+    var visible = getVisibleDecks(segments);
+    var ordered = greedyNearestNeighborOrder(visible);
+    var groups = buildGroups(ordered);
     var container = document.getElementById('deck_results');
     if (!container) return;
 
-    // Re-append in similarity order (visible first, hidden at end)
-    for (var k = 0; k < ordered.length; k++) {
-      container.appendChild(ordered[k].el);
+    for (var g = 0; g < groups.length; g++) {
+      var group = groups[g];
+      var header = createGroupHeader(group.label, group.count, g);
+      container.appendChild(header);
+      for (var d = 0; d < group.decks.length; d++) {
+        group.decks[d].el.setAttribute('data-dedup-group', String(g));
+        container.appendChild(group.decks[d].el);
+      }
     }
+    // Append hidden decks at end
     for (var m = 0; m < segments.length; m++) {
       if (segments[m].getAttribute('data-dedup-hidden') === 'true') {
         container.appendChild(segments[m]);
@@ -144,15 +231,17 @@
   }
 
   function restoreOriginalOrder(segments) {
+    removeGroupHeaders();
+    resetSegmentVisibility(segments);
     var container = document.getElementById('deck_results');
     if (!container) return;
-    // Sort by original deck_N id
     var sorted = segments.slice().sort(function (a, b) {
       var idA = parseInt((a.id || '').replace('deck_', ''), 10) || 0;
       var idB = parseInt((b.id || '').replace('deck_', ''), 10) || 0;
       return idA - idB;
     });
     for (var i = 0; i < sorted.length; i++) {
+      sorted[i].removeAttribute('data-dedup-group');
       container.appendChild(sorted[i]);
     }
   }
@@ -183,8 +272,83 @@
       '}' +
       '.dedup-status {' +
       '  color: #888; font-size: 12px;' +
+      '}' +
+      '.dedup-group-header {' +
+      '  display: flex; align-items: center; justify-content: space-between;' +
+      '  padding: 14px 14px;' +
+      '  margin-top: 12px;' +
+      '  min-height: 44px;' +
+      '  background: linear-gradient(135deg, #ff8c00, #e67600);' +
+      '  border-radius: 4px 4px 0 0;' +
+      '  cursor: pointer;' +
+      '  user-select: none; -webkit-user-select: none;' +
+      '  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;' +
+      '  color: #fff;' +
+      '  font-size: 13px;' +
+      '  font-weight: 600;' +
+      '  -webkit-tap-highlight-color: transparent;' +
+      '}' +
+      '.dedup-group-header:first-child { margin-top: 0; }' +
+      '.dedup-group-header:active { opacity: 0.85; }' +
+      '.dedup-group-header .dedup-group-label {' +
+      '  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;' +
+      '  margin-right: 8px;' +
+      '}' +
+      '.dedup-group-header .dedup-group-meta {' +
+      '  display: flex; align-items: center; flex-shrink: 0;' +
+      '}' +
+      '.dedup-group-header .dedup-group-count {' +
+      '  background: rgba(255,255,255,0.25);' +
+      '  border-radius: 10px;' +
+      '  padding: 1px 8px;' +
+      '  font-size: 11px;' +
+      '  margin-right: 8px;' +
+      '}' +
+      '.dedup-group-header .dedup-group-chevron {' +
+      '  font-size: 16px; line-height: 1;' +
+      '  transition: transform 0.2s ease;' +
+      '}' +
+      '.dedup-group-header.collapsed .dedup-group-chevron {' +
+      '  transform: rotate(-90deg);' +
       '}';
     document.head.appendChild(style);
+  }
+
+  function createGroupHeader(label, count, groupIndex) {
+    var header = document.createElement('div');
+    header.className = 'dedup-group-header';
+    header.setAttribute('data-dedup-group-idx', String(groupIndex));
+
+    var labelSpan = document.createElement('span');
+    labelSpan.className = 'dedup-group-label';
+    labelSpan.textContent = label;
+
+    var metaDiv = document.createElement('span');
+    metaDiv.className = 'dedup-group-meta';
+
+    var countBadge = document.createElement('span');
+    countBadge.className = 'dedup-group-count';
+    countBadge.textContent = count + (count === 1 ? ' deck' : ' decks');
+
+    var chevron = document.createElement('span');
+    chevron.className = 'dedup-group-chevron';
+    chevron.textContent = '▾';
+
+    metaDiv.appendChild(countBadge);
+    metaDiv.appendChild(chevron);
+    header.appendChild(labelSpan);
+    header.appendChild(metaDiv);
+
+    header.addEventListener('click', function () {
+      var isCollapsed = header.classList.toggle('collapsed');
+      var gIdx = header.getAttribute('data-dedup-group-idx');
+      var members = document.querySelectorAll('.deck_segment[data-dedup-group="' + gIdx + '"]');
+      for (var i = 0; i < members.length; i++) {
+        members[i].style.display = isCollapsed ? 'none' : '';
+      }
+    });
+
+    return header;
   }
 
   function createControls() {
@@ -228,10 +392,9 @@
 
     // Similarity toggle
     controls.simCheckbox.addEventListener('change', function () {
-      // Re-fetch segments since DOM order may have changed
       var currentSegments = getAllDeckSegments();
       if (controls.simCheckbox.checked) {
-        sortBySimilarity(currentSegments);
+        sortAndGroup(currentSegments);
       } else {
         restoreOriginalOrder(currentSegments);
       }
