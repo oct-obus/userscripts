@@ -392,20 +392,31 @@
       '}' +
       '.dedup-stats-bar {' +
       '  display: flex; height: 20px; border-radius: 4px; overflow: hidden;' +
+      '  margin-bottom: 2px; position: relative;' +
+      '}' +
+      '.dedup-stats-bar .wins { background: rgba(32,133,208,0.85); }' +
+      '.dedup-stats-bar .draws { background: rgba(128,128,128,0.3); }' +
+      '.dedup-stats-bar .losses { background: rgba(219,40,39,0.85); }' +
+      '.dedup-stats-bar .ref-line {' +
+      '  position: absolute; top: 0; bottom: 0; width: 1px;' +
+      '  background: rgba(255,255,255,0.5); pointer-events: none; z-index: 1;' +
+      '}' +
+      '.dedup-stats-bar .ref-line.q1 { left: 25%; }' +
+      '.dedup-stats-bar .ref-line.q2 { left: 50%; background: rgba(255,255,255,0.8); }' +
+      '.dedup-stats-bar .ref-line.q3 { left: 75%; }' +
+      '.dedup-stats-winlabel {' +
+      '  text-align: center; font-size: 11px; color: #888;' +
       '  margin-bottom: 8px;' +
       '}' +
-      '.dedup-stats-bar .wins { background: #4caf50; }' +
-      '.dedup-stats-bar .draws { background: #9e9e9e; }' +
-      '.dedup-stats-bar .losses { background: #ff7043; }' +
       '.dedup-stats-table { width: 100%; border-collapse: collapse; }' +
       '.dedup-stats-table td { padding: 3px 8px; font-size: 12px; }' +
       '.dedup-stats-table td:first-child { width: 10px; padding: 3px 4px; }' +
       '.dedup-stats-table .dot {' +
       '  display: inline-block; width: 8px; height: 8px; border-radius: 50%;' +
       '}' +
-      '.dedup-stats-table .dot.wins { background: #4caf50; }' +
-      '.dedup-stats-table .dot.draws { background: #9e9e9e; }' +
-      '.dedup-stats-table .dot.losses { background: #ff7043; }' +
+      '.dedup-stats-table .dot.wins { background: rgba(32,133,208,0.85); }' +
+      '.dedup-stats-table .dot.draws { background: rgba(128,128,128,0.5); }' +
+      '.dedup-stats-table .dot.losses { background: rgba(219,40,39,0.85); }' +
       '.dedup-stats-table td.num { text-align: right; color: #666; }' +
       '.dedup-stats-table td.pct { text-align: right; font-weight: 600; }' +
       '.dedup-stats-loading { color: #999; font-size: 12px; padding: 8px 0; }' +
@@ -431,7 +442,22 @@
     addBarSeg('wins', winNum);
     addBarSeg('draws', drawNum);
     addBarSeg('losses', lossNum);
+    // Reference lines at 25%, 50%, 75%
+    var q1 = document.createElement('div');
+    q1.className = 'ref-line q1';
+    bar.appendChild(q1);
+    var q2 = document.createElement('div');
+    q2.className = 'ref-line q2';
+    bar.appendChild(q2);
+    var q3 = document.createElement('div');
+    q3.className = 'ref-line q3';
+    bar.appendChild(q3);
     panel.appendChild(bar);
+    // Win rate label
+    var winLabel = document.createElement('div');
+    winLabel.className = 'dedup-stats-winlabel';
+    winLabel.textContent = (data.winPct || '—') + ' win rate';
+    panel.appendChild(winLabel);
     var table = document.createElement('table');
     table.className = 'dedup-stats-table';
     var addRow = function (dotCls, label, count, pct) {
