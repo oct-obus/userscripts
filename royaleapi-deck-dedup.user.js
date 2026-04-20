@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RoyaleAPI Deck Deduplicator
 // @namespace    https://github.com/oct-obus/userscripts
-// @version      1.7.2
+// @version      1.8
 // @description  Deduplicates decks, adds similarity sorting with collapsible groups, and inline win rate stats — works on leaderboard and card detail pages
 // @author       Zen
 // @match        https://royaleapi.com/decks/leaderboard*
@@ -114,24 +114,41 @@
 
   // ─── Deduplication ──────────────────────────────────────────────────
 
-  function getDeckContainer() {
-    // Leaderboard page: #deck_results
-    var el = document.getElementById('deck_results');
-    if (el) return el;
-    // Card detail page: .card_detail__content_container
-    el = document.querySelector('.card_detail__content_container');
-    if (el) return el;
-    // Fallback: parent of first deck_segment
-    var first = document.querySelector('.deck_segment');
-    return first ? first.parentElement : null;
-  }
+  // Find all deck sections on the page (each gets independent controls)
+  function findDeckSections() {
+    var sections = [];
 
-  function getAllDeckSegments() {
-    var container = getDeckContainer();
-    if (!container) return [];
-    return Array.prototype.slice.call(
-      container.querySelectorAll('.deck_segment')
-    );
+    // Leaderboard page: #deck_results with .deck_segment children
+    var deckResults = document.getElementById('deck_results');
+    if (deckResults) {
+      var segs = Array.prototype.slice.call(deckResults.querySelectorAll('.deck_segment'));
+      if (segs.length > 0) sections.push({ container: deckResults, segments: segs, id: 'leaderboard' });
+      return sections;
+    }
+
+    // Card detail page: two separate lists in .card_detail__content_container
+    var cardContainer = document.querySelector('.card_detail__content_container');
+    if (cardContainer) {
+      // Top Ranked Players: [id^="player_deck_"]
+      var playerDecks = Array.prototype.slice.call(cardContainer.querySelectorAll('[id^="player_deck_"]'));
+      if (playerDecks.length > 0) {
+        sections.push({ container: cardContainer, segments: playerDecks, id: 'top-players' });
+      }
+      // Popular Decks: .deck_segment
+      var popDecks = Array.prototype.slice.call(cardContainer.querySelectorAll('.deck_segment'));
+      if (popDecks.length > 0) {
+        sections.push({ container: cardContainer, segments: popDecks, id: 'popular' });
+      }
+      return sections;
+    }
+
+    // Fallback
+    var allSegs = Array.prototype.slice.call(document.querySelectorAll('.deck_segment'));
+    if (allSegs.length > 0) {
+      var parent = allSegs[0].parentElement;
+      sections.push({ container: parent, segments: allSegs, id: 'fallback' });
+    }
+    return sections;
   }
 
   function deduplicateDecks(segments) {
@@ -219,8 +236,11 @@
     return groups;
   }
 
-  function removeGroupHeaders() {
-    var headers = document.querySelectorAll('.dedup-group-header');
+  function removeGroupHeaders(sectionId) {
+    var sel = sectionId
+      ? '.dedup-group-header[data-dedup-section="' + sectionId + '"]'
+      : '.dedup-group-header';
+    var headers = document.querySelectorAll(sel);
     for (var i = 0; i < headers.length; i++) {
       headers[i].remove();
     }
@@ -234,21 +254,20 @@
     }
   }
 
-  function sortAndGroup(segments) {
-    removeGroupHeaders();
+  function sortAndGroup(segments, container, sectionId) {
+    removeGroupHeaders(sectionId);
     resetSegmentVisibility(segments);
     var visible = getVisibleDecks(segments);
     var ordered = greedyNearestNeighborOrder(visible);
     var groups = buildGroups(ordered);
-    var container = getDeckContainer();
     if (!container) return;
 
     for (var g = 0; g < groups.length; g++) {
       var group = groups[g];
-      var header = createGroupHeader(group.label, group.count, g);
+      var header = createGroupHeader(group.label, group.count, sectionId + '-' + g, sectionId);
       container.appendChild(header);
       for (var d = 0; d < group.decks.length; d++) {
-        group.decks[d].el.setAttribute('data-dedup-group', String(g));
+        group.decks[d].el.setAttribute('data-dedup-group', sectionId + '-' + g);
         container.appendChild(group.decks[d].el);
       }
     }
@@ -260,14 +279,13 @@
     }
   }
 
-  function restoreOriginalOrder(segments) {
-    removeGroupHeaders();
+  function restoreOriginalOrder(segments, container, sectionId) {
+    removeGroupHeaders(sectionId);
     resetSegmentVisibility(segments);
-    var container = getDeckContainer();
     if (!container) return;
     var sorted = segments.slice().sort(function (a, b) {
-      var idA = parseInt((a.id || '').replace('deck_', ''), 10) || 0;
-      var idB = parseInt((b.id || '').replace('deck_', ''), 10) || 0;
+      var idA = parseInt((a.id || '').replace(/\D/g, ''), 10) || 0;
+      var idB = parseInt((b.id || '').replace(/\D/g, ''), 10) || 0;
       return idA - idB;
     });
     for (var i = 0; i < sorted.length; i++) {
@@ -608,10 +626,11 @@
     });
   }
 
-  function createGroupHeader(label, count, groupIndex) {
+  function createGroupHeader(label, count, groupIndex, sectionId) {
     var header = document.createElement('div');
     header.className = 'dedup-group-header';
     header.setAttribute('data-dedup-group-idx', String(groupIndex));
+    if (sectionId) header.setAttribute('data-dedup-section', sectionId);
 
     var labelSpan = document.createElement('span');
     labelSpan.className = 'dedup-group-label';
@@ -636,7 +655,7 @@
     header.addEventListener('click', function () {
       var isCollapsed = header.classList.toggle('collapsed');
       var gIdx = header.getAttribute('data-dedup-group-idx');
-      var members = document.querySelectorAll('.deck_segment[data-dedup-group="' + gIdx + '"]');
+      var members = document.querySelectorAll('[data-dedup-group="' + gIdx + '"]');
       for (var i = 0; i < members.length; i++) {
         members[i].style.display = isCollapsed ? 'none' : '';
       }
@@ -667,22 +686,24 @@
   // ─── Main ───────────────────────────────────────────────────────────
 
   function init() {
-    var container = getDeckContainer();
-    if (!container) return;
-
-    var segments = getAllDeckSegments();
-    if (segments.length === 0) return;
+    var sections = findDeckSections();
+    if (sections.length === 0) return;
 
     injectStyles();
+
+    for (var s = 0; s < sections.length; s++) {
+      initSection(sections[s].container, sections[s].segments, sections[s].id);
+    }
+  }
+
+  function initSection(container, segments, sectionId) {
+    if (!container || segments.length === 0) return;
+
     var controls = createControls();
 
-    // Insert controls above the first deck segment
+    // Insert controls above the first segment in this section
     var firstSegment = segments[0];
-    if (firstSegment && firstSegment.parentNode) {
-      firstSegment.parentNode.insertBefore(controls.wrapper, firstSegment);
-    } else {
-      container.parentNode.insertBefore(controls.wrapper, container);
-    }
+    firstSegment.parentNode.insertBefore(controls.wrapper, firstSegment);
 
     // Run dedup immediately
     var result = deduplicateDecks(segments);
@@ -695,28 +716,25 @@
       addStatsButton(segments[i]);
     }
 
-    // Similarity toggle
+    // Similarity toggle (scoped to this section)
     controls.simCheckbox.addEventListener('change', function () {
-      var currentSegments = getAllDeckSegments();
       if (controls.simCheckbox.checked) {
-        sortAndGroup(currentSegments);
+        sortAndGroup(segments, container, sectionId);
       } else {
-        restoreOriginalOrder(currentSegments);
+        restoreOriginalOrder(segments, container, sectionId);
       }
     });
   }
 
   // Wait for deck results to appear (handles dynamic/progressive loading)
   function waitForDecks() {
-    if (getDeckContainer() &&
-        document.querySelectorAll('.deck_segment').length > 0) {
+    if (findDeckSections().length > 0) {
       init();
       return;
     }
     var debounceTimer = null;
     var observer = new MutationObserver(function () {
-      if (!getDeckContainer() ||
-          document.querySelectorAll('.deck_segment').length === 0) return;
+      if (findDeckSections().length === 0) return;
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(function () {
         observer.disconnect();
