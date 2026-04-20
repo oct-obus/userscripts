@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RoyaleAPI Deck Deduplicator
 // @namespace    https://github.com/oct-obus/userscripts
-// @version      1.7.1
+// @version      1.7.2
 // @description  Deduplicates decks, adds similarity sorting with collapsible groups, and inline win rate stats — works on leaderboard and card detail pages
 // @author       Zen
 // @match        https://royaleapi.com/decks/leaderboard*
@@ -47,9 +47,15 @@
     return link ? link.href : null;
   }
 
+  var isCardPage = /\/card\//.test(location.pathname);
+
   function makeDeckFingerprint(cardKeys) {
-    // Use sorted card set as fingerprint — order-independent for cross-page dedup
-    return cardKeys.slice().sort().join(',');
+    var sorted = cardKeys.slice().sort().join(',');
+    // On leaderboard, first 3 cards represent player's chosen ordering — include in fingerprint
+    // On card pages, card order varies by display context — use sorted set only
+    if (isCardPage || cardKeys.length < 3) return sorted;
+    var firstThree = cardKeys.slice(0, 3).join('|');
+    return firstThree + '::' + sorted;
   }
 
   function cardSet(cardKeys) {
