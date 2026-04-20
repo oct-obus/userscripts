@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RoyaleAPI Deck Deduplicator
 // @namespace    https://github.com/oct-obus/userscripts
-// @version      1.8
+// @version      1.8.1
 // @description  Deduplicates decks, adds similarity sorting with collapsible groups, and inline win rate stats — works on leaderboard and card detail pages
 // @author       Zen
 // @match        https://royaleapi.com/decks/leaderboard*
@@ -699,11 +699,18 @@
   function initSection(container, segments, sectionId) {
     if (!container || segments.length === 0) return;
 
-    var controls = createControls();
-
-    // Insert controls above the first segment in this section
+    // Wrap this section's segments in a dedicated container so
+    // sort/restore appendChild stays within this section only
+    var wrapper = document.createElement('div');
+    wrapper.setAttribute('data-dedup-section-wrapper', sectionId);
     var firstSegment = segments[0];
-    firstSegment.parentNode.insertBefore(controls.wrapper, firstSegment);
+    firstSegment.parentNode.insertBefore(wrapper, firstSegment);
+    for (var i = 0; i < segments.length; i++) {
+      wrapper.appendChild(segments[i]);
+    }
+
+    var controls = createControls();
+    wrapper.insertBefore(controls.wrapper, wrapper.firstChild);
 
     // Run dedup immediately
     var result = deduplicateDecks(segments);
@@ -712,16 +719,16 @@
       visibleCount + ' unique decks (' + result.hidden + ' duplicates hidden)';
 
     // Add stats buttons to all visible segments
-    for (var i = 0; i < segments.length; i++) {
-      addStatsButton(segments[i]);
+    for (var j = 0; j < segments.length; j++) {
+      addStatsButton(segments[j]);
     }
 
-    // Similarity toggle (scoped to this section)
+    // Similarity toggle (scoped to this section's wrapper)
     controls.simCheckbox.addEventListener('change', function () {
       if (controls.simCheckbox.checked) {
-        sortAndGroup(segments, container, sectionId);
+        sortAndGroup(segments, wrapper, sectionId);
       } else {
-        restoreOriginalOrder(segments, container, sectionId);
+        restoreOriginalOrder(segments, wrapper, sectionId);
       }
     });
   }
