@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RoyaleAPI Deck Deduplicator
 // @namespace    https://github.com/oct-obus/userscripts
-// @version      1.7
+// @version      1.7.1
 // @description  Deduplicates decks, adds similarity sorting with collapsible groups, and inline win rate stats — works on leaderboard and card detail pages
 // @author       Zen
 // @match        https://royaleapi.com/decks/leaderboard*
@@ -48,10 +48,8 @@
   }
 
   function makeDeckFingerprint(cardKeys) {
-    if (cardKeys.length < 3) return cardKeys.join(',');
-    var firstThree = cardKeys.slice(0, 3).join('|');
-    var sorted = cardKeys.slice().sort().join(',');
-    return firstThree + '::' + sorted;
+    // Use sorted card set as fingerprint — order-independent for cross-page dedup
+    return cardKeys.slice().sort().join(',');
   }
 
   function cardSet(cardKeys) {
@@ -551,6 +549,7 @@
     var panelEl = null;
     var isOpen = false;
     var isFetching = false;
+    var hasFetchError = false;
     btn.addEventListener('click', function (e) {
       e.preventDefault();
       e.stopPropagation();
@@ -562,8 +561,8 @@
       }
       isOpen = true;
       btn.classList.add('active');
-      // If panel exists and last fetch succeeded, just re-show it
-      if (panelEl && !isFetching) {
+      // If panel exists, last fetch succeeded, just re-show it
+      if (panelEl && !isFetching && !hasFetchError) {
         panelEl.style.display = '';
         return;
       }
@@ -571,8 +570,9 @@
       if (isFetching) return;
       var url = getDeckStatsUrl(segment);
       if (!url) return;
-      // Remove stale error panel so we can retry
+      // Remove stale panel (error or otherwise) so we can retry
       if (panelEl) { panelEl.remove(); panelEl = null; }
+      hasFetchError = false;
       isFetching = true;
       panelEl = document.createElement('div');
       panelEl.className = 'dedup-stats-panel';
@@ -584,14 +584,13 @@
       fetchDeckStats(url, function (err, data) {
         isFetching = false;
         if (err) {
-          // Clear panelEl so next click can retry
+          hasFetchError = true;
           var errDiv = document.createElement('div');
           errDiv.className = 'dedup-stats-error';
           errDiv.textContent = '\u26A0 ' + err;
           panelEl.textContent = '';
           panelEl.appendChild(errDiv);
           if (!isOpen) panelEl.style.display = 'none';
-          panelEl = null;
           return;
         }
         var newPanel = createStatsPanel(data);
