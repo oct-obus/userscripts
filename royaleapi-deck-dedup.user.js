@@ -1,10 +1,11 @@
 // ==UserScript==
-// @name         RoyaleAPI Leaderboard Deck Deduplicator
+// @name         RoyaleAPI Deck Deduplicator
 // @namespace    https://github.com/oct-obus/userscripts
-// @version      1.6
-// @description  Deduplicates leaderboard decks, adds similarity sorting with collapsible groups, and inline win rate stats
+// @version      1.7
+// @description  Deduplicates decks, adds similarity sorting with collapsible groups, and inline win rate stats — works on leaderboard and card detail pages
 // @author       Zen
 // @match        https://royaleapi.com/decks/leaderboard*
+// @match        https://royaleapi.com/card/*
 // @run-at       document-idle
 // @updateURL    https://raw.githubusercontent.com/oct-obus/userscripts/main/royaleapi-deck-dedup.user.js
 // @downloadURL  https://raw.githubusercontent.com/oct-obus/userscripts/main/royaleapi-deck-dedup.user.js
@@ -19,9 +20,10 @@
   // ─── Deck Parsing ───────────────────────────────────────────────────
 
   function getCardKeysFromSegment(segment) {
-    var deckRow = segment.querySelector('a.deck_lb__deck_row');
-    if (!deckRow) return [];
-    var imgs = deckRow.querySelectorAll('img.deck_card');
+    // Leaderboard pages use a.deck_lb__deck_row > img.deck_card
+    // Card detail pages use img.deck_card directly inside the segment grid
+    // Exclude tower_troop cards (tower-princess, royal-chef, etc.) shown on card pages
+    var imgs = segment.querySelectorAll('img.deck_card:not(.tower_troop)');
     var keys = [];
     for (var i = 0; i < imgs.length; i++) {
       var classList = imgs[i].className.split(/\s+/);
@@ -35,7 +37,13 @@
   }
 
   function getDeckStatsUrl(segment) {
+    // Leaderboard: a.deck_lb__deck_row
     var link = segment.querySelector('a.deck_lb__deck_row');
+    if (link) return link.href;
+    // Card detail: h5.deck_name_link > a, or any link to /decks/stats/
+    link = segment.querySelector('h5.deck_name_link a');
+    if (link) return link.href;
+    link = segment.querySelector('a[href*="/decks/stats/"]');
     return link ? link.href : null;
   }
 
@@ -102,8 +110,20 @@
 
   // ─── Deduplication ──────────────────────────────────────────────────
 
+  function getDeckContainer() {
+    // Leaderboard page: #deck_results
+    var el = document.getElementById('deck_results');
+    if (el) return el;
+    // Card detail page: .card_detail__content_container
+    el = document.querySelector('.card_detail__content_container');
+    if (el) return el;
+    // Fallback: parent of first deck_segment
+    var first = document.querySelector('.deck_segment');
+    return first ? first.parentElement : null;
+  }
+
   function getAllDeckSegments() {
-    var container = document.getElementById('deck_results');
+    var container = getDeckContainer();
     if (!container) return [];
     return Array.prototype.slice.call(
       container.querySelectorAll('.deck_segment')
@@ -216,7 +236,7 @@
     var visible = getVisibleDecks(segments);
     var ordered = greedyNearestNeighborOrder(visible);
     var groups = buildGroups(ordered);
-    var container = document.getElementById('deck_results');
+    var container = getDeckContainer();
     if (!container) return;
 
     for (var g = 0; g < groups.length; g++) {
@@ -239,7 +259,7 @@
   function restoreOriginalOrder(segments) {
     removeGroupHeaders();
     resetSegmentVisibility(segments);
-    var container = document.getElementById('deck_results');
+    var container = getDeckContainer();
     if (!container) return;
     var sorted = segments.slice().sort(function (a, b) {
       var idA = parseInt((a.id || '').replace('deck_', ''), 10) || 0;
@@ -507,9 +527,22 @@
   }
 
   function addStatsButton(segment) {
-    var buttonContainer = segment.querySelector('.button_container');
-    if (!buttonContainer) return;
     if (segment.querySelector('.dedup-stats-btn')) return;
+    // Leaderboard: .button_container
+    // Card detail: .pad0.right.aligned.column or fallback to the segment header area
+    var buttonContainer = segment.querySelector('.button_container');
+    if (!buttonContainer) {
+      buttonContainer = segment.querySelector('.right.aligned.column');
+    }
+    if (!buttonContainer) {
+      // Last resort: append after the deck name link
+      var nameLink = segment.querySelector('h5.deck_name_link');
+      if (nameLink) {
+        buttonContainer = nameLink;
+      } else {
+        return;
+      }
+    }
     var btn = document.createElement('button');
     btn.className = 'dedup-stats-btn';
     btn.textContent = '\uD83D\uDCCA';
@@ -629,7 +662,7 @@
   // ─── Main ───────────────────────────────────────────────────────────
 
   function init() {
-    var container = document.getElementById('deck_results');
+    var container = getDeckContainer();
     if (!container) return;
 
     var segments = getAllDeckSegments();
@@ -638,7 +671,13 @@
     injectStyles();
     var controls = createControls();
 
-    container.parentNode.insertBefore(controls.wrapper, container);
+    // Insert controls above the first deck segment
+    var firstSegment = segments[0];
+    if (firstSegment && firstSegment.parentNode) {
+      firstSegment.parentNode.insertBefore(controls.wrapper, firstSegment);
+    } else {
+      container.parentNode.insertBefore(controls.wrapper, container);
+    }
 
     // Run dedup immediately
     var result = deduplicateDecks(segments);
@@ -664,14 +703,14 @@
 
   // Wait for deck results to appear (handles dynamic/progressive loading)
   function waitForDecks() {
-    if (document.getElementById('deck_results') &&
+    if (getDeckContainer() &&
         document.querySelectorAll('.deck_segment').length > 0) {
       init();
       return;
     }
     var debounceTimer = null;
     var observer = new MutationObserver(function () {
-      if (!document.getElementById('deck_results') ||
+      if (!getDeckContainer() ||
           document.querySelectorAll('.deck_segment').length === 0) return;
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(function () {
