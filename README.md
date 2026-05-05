@@ -7,3 +7,4 @@
 | [Fritz!Box Mesh Page Fix](https://raw.githubusercontent.com/oct-obus/userscripts/main/fritz-mesh-fix.user.js) | Fixes the Fritz!Box mesh page from freezing every 5 seconds |
 | [Fritz.com German Locale Fix](https://raw.githubusercontent.com/oct-obus/userscripts/main/fritz-german-locale.user.js) | Forces fritz.com to use the German locale instead of auto-redirecting to English |
 | [RoyaleAPI Deck Deduplicator](https://raw.githubusercontent.com/oct-obus/userscripts/main/royaleapi-deck-dedup.user.js) | Deduplicates leaderboard decks and adds similarity sorting with collapsible groups |
+| [RoyaleAPI Card Selector Enhanced](https://raw.githubusercontent.com/oct-obus/userscripts/main/royaleapi-enhanced.user.js) | Groups the deck builder card selector by rarity with collapsible sections, split views for Tower Troops / Buildings / Spells, fuzzy search, tinting, and 1.15× sizing |
