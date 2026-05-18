@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RoyaleAPI Card Selector Enhanced
 // @namespace    https://github.com/obus-schmobus/royaleapi-userscript
-// @version      3.3.1
+// @version      3.3.2
 // @description  Groups card selector by rarity with collapsible sections, split views for Heroes/Evos/Tower Troops and Buildings/Spells (auto-scraped), fuzzy search, tinting, and 1.15x sizing
 // @author       Zen & Obus
 // @match        https://royaleapi.com/decks/*
@@ -461,6 +461,8 @@
 
   function forceLoadImages(container) {
     for (const img of container.querySelectorAll('img')) {
+      if (img.dataset.src) img.dataset.src = upgradeCardImageUrl(img.dataset.src);
+      if (img.src) img.src = upgradeCardImageUrl(img.src);
       img.loading = 'eager';
       if (img.dataset.src && !img.src) img.src = img.dataset.src;
       if (img.src && (!img.complete || img.naturalWidth === 0)) {
@@ -469,6 +471,13 @@
         img.src = src;
       }
     }
+  }
+
+  function upgradeCardImageUrl(url) {
+    return url.replace(
+      /\/cdn-cgi\/image\/[^/]+(\/static\/img\/cards\/[^/]+\/[^/]+\.png)/,
+      '/cdn-cgi/image/q=75,w=150,h=180,format=auto$1'
+    );
   }
 
   function regroup(content) {
