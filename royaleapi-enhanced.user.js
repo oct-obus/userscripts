@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RoyaleAPI Card Selector Enhanced
 // @namespace    https://github.com/obus-schmobus/royaleapi-userscript
-// @version      3.3.0
+// @version      3.3.1
 // @description  Groups card selector by rarity with collapsible sections, split views for Heroes/Evos/Tower Troops and Buildings/Spells (auto-scraped), fuzzy search, tinting, and 1.15x sizing
 // @author       Zen & Obus
 // @match        https://royaleapi.com/decks/*
@@ -143,7 +143,7 @@
     style.id = 'ra-enhanced-styles';
     style.textContent = `
       .crcard {
-        background-color: rgba(100, 149, 237, 0.2) !important;
+        background-color: rgba(100, 149, 237, 0) !important;
         border-radius: 4px !important;
         padding: 2px !important;
         width: ${CARD_WIDTH}px !important;
