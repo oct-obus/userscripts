@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RoyaleAPI Deck Deduplicator
 // @namespace    https://github.com/oct-obus/userscripts
-// @version      1.9.0
+// @version      1.9.1
 // @description  Deduplicates decks, adds similarity sorting with collapsible groups, and inline win rate stats — works on leaderboard and card detail pages
 // @author       Zen
 // @match        https://royaleapi.com/decks/leaderboard*
@@ -806,12 +806,14 @@
     var simLabel = document.createElement('label');
     var simCheckbox = document.createElement('input');
     simCheckbox.type = 'checkbox';
+    simCheckbox.checked = true;
     simLabel.appendChild(simCheckbox);
     simLabel.appendChild(document.createTextNode('Sort by similarity'));
 
     var winConLabel = document.createElement('label');
     var winConCheckbox = document.createElement('input');
     winConCheckbox.type = 'checkbox';
+    winConCheckbox.checked = true;
     winConLabel.appendChild(winConCheckbox);
     winConLabel.appendChild(document.createTextNode('Group by win con'));
 
@@ -906,6 +908,8 @@
         restoreOriginalOrder(segments, wrapper, sectionId, controls.dupCheckbox.checked);
       }
     }
+
+    applyLayout();
 
     controls.simCheckbox.addEventListener('change', applyLayout);
     controls.winConCheckbox.addEventListener('change', applyLayout);
