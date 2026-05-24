@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RoyaleAPI Deck Deduplicator
 // @namespace    https://github.com/oct-obus/userscripts
-// @version      1.8.2
+// @version      1.9.0
 // @description  Deduplicates decks, adds similarity sorting with collapsible groups, and inline win rate stats — works on leaderboard and card detail pages
 // @author       Zen
 // @match        https://royaleapi.com/decks/leaderboard*
@@ -16,6 +16,20 @@
 
   var GROUP_THRESHOLD = 4; // min shared cards to stay in same group
   var statsCache = {}; // url -> { wins, draws, losses, winPct, drawPct, lossPct, total }
+  var WIN_CON_STORAGE_KEY = 'ra-dedup-win-conditions';
+  var WIN_CON_TS_STORAGE_KEY = 'ra-dedup-win-conditions-ts';
+  var WIN_CON_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+  var FALLBACK_WIN_CONDITIONS = [
+    'balloon', 'balloon-hero', 'battle-ram', 'battle-ram-ev1', 'electro-giant', 'elixir-golem',
+    'giant', 'giant-hero', 'goblin-barrel', 'goblin-barrel-ev1', 'goblin-drill', 'goblin-drill-ev1',
+    'goblin-giant', 'goblin-giant-ev1', 'golem', 'graveyard', 'hog-rider', 'lava-hound', 'miner',
+    'mortar', 'mortar-ev1', 'ram-rider', 'royal-giant', 'royal-giant-ev1', 'royal-hogs',
+    'royal-hogs-ev1', 'skeleton-barrel', 'skeleton-barrel-ev1', 'suspicious-bush',
+    'three-musketeers', 'wall-breakers', 'wall-breakers-ev1', 'x-bow'
+  ];
+  var winConditions = loadWinConditions();
+  var winConditionSource = winConditions.source;
+  var winConStatusEls = [];
 
   // ─── Deck Parsing ───────────────────────────────────────────────────
 
@@ -49,6 +63,90 @@
   }
 
   var isCardPage = /\/card\//.test(location.pathname);
+
+  function loadWinConditions() {
+    try {
+      var cached = JSON.parse(localStorage.getItem(WIN_CON_STORAGE_KEY) || 'null');
+      var ts = JSON.parse(localStorage.getItem(WIN_CON_TS_STORAGE_KEY) || 'null');
+      if (cached && cached.length) {
+        return {
+          list: cached,
+          source: ts && Date.now() - new Date(ts).getTime() <= WIN_CON_MAX_AGE ? 'cached' : 'stale',
+          timestamp: ts
+        };
+      }
+    } catch (_) {}
+    return { list: FALLBACK_WIN_CONDITIONS.slice(), source: 'fallback', timestamp: null };
+  }
+
+  function saveWinConditions(list) {
+    var ts = new Date().toISOString();
+    try {
+      localStorage.setItem(WIN_CON_STORAGE_KEY, JSON.stringify(list));
+      localStorage.setItem(WIN_CON_TS_STORAGE_KEY, JSON.stringify(ts));
+    } catch (_) {}
+    winConditions = { list: list, source: 'live', timestamp: ts };
+    winConditionSource = 'live';
+  }
+
+  function fetchWinConditions(callback) {
+    fetch('/cards/popular?time=7d&mode=grid&cat=Ranked&sort=rating')
+      .then(function (resp) {
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        return resp.text();
+      })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var jsTag = doc.querySelector('script[src*="cards_popular"]');
+        if (!jsTag) throw new Error('cards_popular script not found');
+        return fetch(jsTag.getAttribute('src'));
+      })
+      .then(function (resp) {
+        if (!resp.ok) throw new Error('JS HTTP ' + resp.status);
+        return resp.text();
+      })
+      .then(function (js) {
+        var match = js.match(/\bwinConditions\s*=\s*\[([^\]]+)\]/);
+        if (!match) throw new Error('winConditions list not found');
+        var quoted = match[1].match(/"([^"]+)"/g);
+        if (!quoted || quoted.length === 0) throw new Error('empty winConditions list');
+        var list = quoted.map(function (s) { return s.replace(/"/g, ''); });
+        saveWinConditions(list);
+        callback(null, list);
+      })
+      .catch(function (err) {
+        callback(err.message || String(err));
+      });
+  }
+
+  function getWinConditionKeys(cardKeys) {
+    var set = cardSet(winConditions.list || FALLBACK_WIN_CONDITIONS);
+    var found = [];
+    for (var i = 0; i < cardKeys.length; i++) {
+      if (set[cardKeys[i]]) found.push(cardKeys[i]);
+    }
+    return found;
+  }
+
+  function getWinConditionLabel(cardKeys) {
+    var keys = getWinConditionKeys(cardKeys);
+    if (keys.length === 0) return 'No Win Condition';
+    return keys.map(formatCardName).join(' + ');
+  }
+
+  function formatWinConStatus() {
+    var count = (winConditions.list || []).length;
+    if (winConditionSource === 'live') return 'Win cons: live (' + count + ')';
+    if (winConditionSource === 'cached') return 'Win cons: cached (' + count + ')';
+    if (winConditionSource === 'stale') return 'Win cons: stale cache (' + count + ')';
+    return 'Win cons: fallback list (' + count + ')';
+  }
+
+  function updateWinConStatusEls() {
+    for (var i = 0; i < winConStatusEls.length; i++) {
+      winConStatusEls[i].textContent = formatWinConStatus();
+    }
+  }
 
   function makeDeckFingerprint(cardKeys) {
     var sorted = cardKeys.slice().sort().join(',');
@@ -179,10 +277,10 @@
 
   // ─── Similarity Sorting + Grouping ──────────────────────────────────
 
-  function getVisibleDecks(segments) {
+  function getVisibleDecks(segments, includeDuplicates) {
     var visible = [];
     for (var i = 0; i < segments.length; i++) {
-      if (segments[i].getAttribute('data-dedup-hidden') === 'true') continue;
+      if (!includeDuplicates && segments[i].getAttribute('data-dedup-hidden') === 'true') continue;
       if (segments[i].getAttribute('data-dedup-noparse') === 'true') continue;
       var keys = getCardKeysFromSegment(segments[i]);
       if (keys.length === 0) continue;
@@ -237,6 +335,24 @@
     return groups;
   }
 
+  function buildWinConditionGroups(visible, sortWithinGroups) {
+    var grouped = [];
+    var byLabel = {};
+    for (var i = 0; i < visible.length; i++) {
+      var label = getWinConditionLabel(visible[i].keys);
+      if (!byLabel[label]) {
+        byLabel[label] = { label: label, decks: [] };
+        grouped.push(byLabel[label]);
+      }
+      byLabel[label].decks.push(visible[i]);
+    }
+    for (var g = 0; g < grouped.length; g++) {
+      if (sortWithinGroups) grouped[g].decks = greedyNearestNeighborOrder(grouped[g].decks);
+      grouped[g].count = grouped[g].decks.length;
+    }
+    return grouped;
+  }
+
   function removeGroupHeaders(sectionId) {
     var sel = sectionId
       ? '.dedup-group-header[data-dedup-section="' + sectionId + '"]'
@@ -247,20 +363,26 @@
     }
   }
 
-  function resetSegmentVisibility(segments) {
+  function resetSegmentVisibility(segments, showDuplicates) {
     for (var i = 0; i < segments.length; i++) {
-      if (segments[i].getAttribute('data-dedup-hidden') !== 'true') {
+      if (showDuplicates || segments[i].getAttribute('data-dedup-hidden') !== 'true') {
         segments[i].style.display = '';
+      } else {
+        segments[i].style.display = 'none';
       }
     }
   }
 
-  function sortAndGroup(segments, container, sectionId) {
+  function sortAndGroup(segments, container, sectionId, showDuplicates, groupByWinCon, sortBySimilarity) {
     removeGroupHeaders(sectionId);
-    resetSegmentVisibility(segments);
-    var visible = getVisibleDecks(segments);
-    var ordered = greedyNearestNeighborOrder(visible);
-    var groups = buildGroups(ordered);
+    resetSegmentVisibility(segments, showDuplicates);
+    for (var s = 0; s < segments.length; s++) {
+      segments[s].removeAttribute('data-dedup-group');
+    }
+    var visible = getVisibleDecks(segments, showDuplicates);
+    var groups = groupByWinCon
+      ? buildWinConditionGroups(visible, sortBySimilarity)
+      : buildGroups(sortBySimilarity ? greedyNearestNeighborOrder(visible) : visible);
     if (!container) return;
 
     for (var g = 0; g < groups.length; g++) {
@@ -272,17 +394,17 @@
         container.appendChild(group.decks[d].el);
       }
     }
-    // Append hidden decks at end
+    // Append hidden decks at end when duplicates are hidden
     for (var m = 0; m < segments.length; m++) {
-      if (segments[m].getAttribute('data-dedup-hidden') === 'true') {
+      if (!showDuplicates && segments[m].getAttribute('data-dedup-hidden') === 'true') {
         container.appendChild(segments[m]);
       }
     }
   }
 
-  function restoreOriginalOrder(segments, container, sectionId) {
+  function restoreOriginalOrder(segments, container, sectionId, showDuplicates) {
     removeGroupHeaders(sectionId);
-    resetSegmentVisibility(segments);
+    resetSegmentVisibility(segments, showDuplicates);
     if (!container) return;
     var sorted = segments.slice().sort(function (a, b) {
       var idA = parseInt((a.id || '').replace(/\D/g, ''), 10) || 0;
@@ -370,6 +492,12 @@
       '.dedup-controls input[type="checkbox"] {' +
       '  width: 16px; height: 16px; margin: 0 6px 0 0;' +
       '}' +
+      '.dedup-controls button {' +
+      '  margin-right: 10px; padding: 4px 9px; border: 1px solid #ccc;' +
+      '  border-radius: 4px; background: #fff; color: #333; cursor: pointer;' +
+      '  font-size: 12px;' +
+      '}' +
+      '.dedup-controls button:disabled { opacity: 0.55; cursor: default; }' +
       '.dedup-status {' +
       '  color: #888; font-size: 12px;' +
       '}' +
@@ -672,16 +800,47 @@
     var statusSpan = document.createElement('span');
     statusSpan.className = 'dedup-status';
 
+    var winConStatusSpan = document.createElement('span');
+    winConStatusSpan.className = 'dedup-status';
+
     var simLabel = document.createElement('label');
     var simCheckbox = document.createElement('input');
     simCheckbox.type = 'checkbox';
     simLabel.appendChild(simCheckbox);
     simLabel.appendChild(document.createTextNode('Sort by similarity'));
 
-    wrapper.appendChild(simLabel);
-    wrapper.appendChild(statusSpan);
+    var winConLabel = document.createElement('label');
+    var winConCheckbox = document.createElement('input');
+    winConCheckbox.type = 'checkbox';
+    winConLabel.appendChild(winConCheckbox);
+    winConLabel.appendChild(document.createTextNode('Group by win con'));
 
-    return { wrapper: wrapper, simCheckbox: simCheckbox, statusSpan: statusSpan };
+    var dupLabel = document.createElement('label');
+    var dupCheckbox = document.createElement('input');
+    dupCheckbox.type = 'checkbox';
+    dupLabel.appendChild(dupCheckbox);
+    dupLabel.appendChild(document.createTextNode('Show duplicates'));
+
+    var refreshBtn = document.createElement('button');
+    refreshBtn.type = 'button';
+    refreshBtn.textContent = 'Refresh win cons';
+
+    wrapper.appendChild(simLabel);
+    wrapper.appendChild(winConLabel);
+    wrapper.appendChild(dupLabel);
+    wrapper.appendChild(refreshBtn);
+    wrapper.appendChild(statusSpan);
+    wrapper.appendChild(winConStatusSpan);
+
+    return {
+      wrapper: wrapper,
+      simCheckbox: simCheckbox,
+      winConCheckbox: winConCheckbox,
+      dupCheckbox: dupCheckbox,
+      refreshBtn: refreshBtn,
+      statusSpan: statusSpan,
+      winConStatusSpan: winConStatusSpan
+    };
   }
 
   // ─── Main ───────────────────────────────────────────────────────────
@@ -712,26 +871,68 @@
 
     var controls = createControls();
     wrapper.insertBefore(controls.wrapper, wrapper.firstChild);
+    winConStatusEls.push(controls.winConStatusSpan);
+    updateWinConStatusEls();
 
     // Run dedup immediately
     var result = deduplicateDecks(segments);
     var visibleCount = segments.length - result.hidden - result.parseFail;
-    controls.statusSpan.textContent =
-      visibleCount + ' unique decks (' + result.hidden + ' duplicates hidden)';
+    function updateStatus() {
+      var showDupes = controls.dupCheckbox.checked;
+      var shown = segments.length - (showDupes ? 0 : result.hidden);
+      var parseText = result.parseFail ? ', ' + result.parseFail + ' unparsed' : '';
+      controls.statusSpan.textContent = shown + ' shown, ' + visibleCount + ' unique' + parseText + ' (' +
+        result.hidden + (showDupes ? ' duplicates shown)' : ' duplicates hidden)');
+    }
+    updateStatus();
 
     // Add stats buttons to all visible segments
     for (var j = 0; j < segments.length; j++) {
       addStatsButton(segments[j]);
     }
 
-    // Similarity toggle (scoped to this section's wrapper)
-    controls.simCheckbox.addEventListener('change', function () {
-      if (controls.simCheckbox.checked) {
-        sortAndGroup(segments, wrapper, sectionId);
+    function applyLayout() {
+      updateStatus();
+      if (controls.simCheckbox.checked || controls.winConCheckbox.checked) {
+        sortAndGroup(
+          segments,
+          wrapper,
+          sectionId,
+          controls.dupCheckbox.checked,
+          controls.winConCheckbox.checked,
+          controls.simCheckbox.checked
+        );
       } else {
-        restoreOriginalOrder(segments, wrapper, sectionId);
+        restoreOriginalOrder(segments, wrapper, sectionId, controls.dupCheckbox.checked);
       }
+    }
+
+    controls.simCheckbox.addEventListener('change', applyLayout);
+    controls.winConCheckbox.addEventListener('change', applyLayout);
+    controls.dupCheckbox.addEventListener('change', applyLayout);
+    controls.refreshBtn.addEventListener('click', function () {
+      controls.refreshBtn.disabled = true;
+      controls.refreshBtn.textContent = 'Refreshing...';
+      fetchWinConditions(function (err) {
+        controls.refreshBtn.disabled = false;
+        controls.refreshBtn.textContent = err ? 'Retry win cons' : 'Refresh win cons';
+        if (err) {
+          controls.winConStatusSpan.textContent = formatWinConStatus() + ' (refresh failed: ' + err + ')';
+        } else {
+          updateWinConStatusEls();
+          if (controls.winConCheckbox.checked) applyLayout();
+        }
+      });
     });
+
+    if (winConditionSource === 'fallback' || winConditionSource === 'stale') {
+      fetchWinConditions(function (err) {
+        if (!err) {
+          updateWinConStatusEls();
+          if (controls.winConCheckbox.checked) applyLayout();
+        }
+      });
+    }
   }
 
   // Wait for deck results to appear (handles dynamic/progressive loading)
