@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RoyaleAPI Deck Deduplicator
 // @namespace    https://github.com/oct-obus/userscripts
-// @version      1.8.1
+// @version      1.8.2
 // @description  Deduplicates decks, adds similarity sorting with collapsible groups, and inline win rate stats — works on leaderboard and card detail pages
 // @author       Zen
 // @match        https://royaleapi.com/decks/leaderboard*
@@ -23,7 +23,8 @@
     // Leaderboard pages use a.deck_lb__deck_row > img.deck_card
     // Card detail pages use img.deck_card directly inside the segment grid
     // Exclude tower_troop cards (tower-princess, royal-chef, etc.) shown on card pages
-    var imgs = segment.querySelectorAll('img.deck_card:not(.tower_troop)');
+    var root = segment.querySelector('a.deck_lb__deck_row') || segment;
+    var imgs = root.querySelectorAll('img.deck_card:not(.tower_troop)');
     var keys = [];
     for (var i = 0; i < imgs.length; i++) {
       var classList = imgs[i].className.split(/\s+/);
